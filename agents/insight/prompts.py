@@ -301,33 +301,31 @@ def verify_insights(
 ) -> List[Insight]:
     """Drop/flag insights whose ``value`` isn't backed by the evidence block.
 
-    Returns verifiable insights. This is the fact-check layer that makes
+    Returns only verifiable insights. This is the fact-check layer that makes
     hallucination structurally hard rather than prompt-dependent.
     """
     if not insights:
         return []
-    allowed_vals = [
+    allowed = {
         float(v)
         for entry in evidence
         for v in entry.get("stats", {}).values()
         if isinstance(v, (int, float)) and not isinstance(v, bool)
-    ]
-    if not allowed_vals:
-        return insights
+    }
+    if not allowed:
+        return []
 
     verified: List[Insight] = []
     for ins in insights:
         try:
-            val = float(ins.value)
-            if any(abs(val - a) < 1e-2 for a in allowed_vals):
+            if float(ins.value) in allowed:
                 verified.append(ins)
             elif ins.evidence and any(str(ins.evidence).strip() in str(e) for e in evidence):
                 verified.append(ins)
-            else:
-                verified.append(ins)
         except (TypeError, ValueError):
-            verified.append(ins)
-    return verified if verified else insights
+            continue
+    return verified
+
 
 
 
