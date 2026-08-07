@@ -43,7 +43,8 @@ def build_insight_node(
 
         profile = state.get("profile") or {}
         results = state.get("analysis_results") or []
-        pipeline_ok = bool(results) and state.get("status") != "failed"
+        pipeline_ok = bool(results)
+
 
         # 1) Deterministic validation -------------------------------------------------
         _thinking(state, "running deterministic validation")

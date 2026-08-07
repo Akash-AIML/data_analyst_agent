@@ -361,4 +361,7 @@ def reflector_node(state: AgentState) -> AgentState:
             state["error_log"].append(f"Reflector: {note}")
     
     state["reflection_notes"] = reflection_notes
+    if state.get("analysis_results"):
+        state["status"] = "completed"
     return state
+
