@@ -136,6 +136,28 @@ def build_consistency_prompt(insights: List[Dict[str, Any]]) -> str:
 # LLM wiring
 # ---------------------------------------------------------------------------
 
+class ResilientFallbackModel(BaseChatModel):
+    primary: Any
+    fallback: Any
+
+    def _generate(self, messages: Any, stop: Any = None, **kwargs: Any) -> Any:
+        try:
+            return self.primary._generate(messages, stop=stop, **kwargs)
+        except Exception:
+            for attempt in range(1, 4):
+                try:
+                    return self.fallback._generate(messages, stop=stop, **kwargs)
+                except Exception as fb_err:
+                    if attempt < 3:
+                        time.sleep(3.0)
+                    else:
+                        raise fb_err
+
+    @property
+    def _llm_type(self) -> str:
+        return "resilient_fallback"
+
+
 def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> BaseChatModel:
     """Default chat model. Configured with automatic fallback across OpenAI and Groq."""
     import os
@@ -169,7 +191,7 @@ def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> Bas
         )
 
         if groq_llm:
-            return primary_llm.with_fallbacks([groq_llm])
+            return ResilientFallbackModel(primary=primary_llm, fallback=groq_llm)
         return primary_llm
     elif groq_llm:
         return groq_llm
@@ -180,6 +202,7 @@ def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> Bas
         from langchain_openai import ChatOpenAI
         m = model or os.getenv("MODEL", "gpt-4.1-nano")
         return ChatOpenAI(model=m, temperature=temperature)
+
 
 
 

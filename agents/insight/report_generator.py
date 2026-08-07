@@ -102,11 +102,16 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
     """
     errors: List[str] = []
 
-    profile = state.get("profile") or {}
+    profile = dict(state.get("profile") or {})
+    if not isinstance(profile.get("columns"), dict):
+        profile["columns_count"] = profile.get("columns_count") or (profile.get("columns") if isinstance(profile.get("columns"), (int, float)) else 0)
+        profile["columns"] = {}
+
     insights = state.get("insights") or []
     recommendations = state.get("recommendations") or []
     contradictions = state.get("contradictions") or []
     validation = state.get("validation_report") or {}
+
 
     # Re-run the deterministic validation so the report always reflects the
     # latest results even if the node-level validation was skipped.
