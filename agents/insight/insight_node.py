@@ -66,11 +66,13 @@ def build_insight_node(
             return _write_report(state, output_dir)
 
         if validation.get("errors"):
-            _log_error(state, "validation failed; insights not generated from "
-                              f"{len(validation['errors'])} invalid result(s)")
+            _log_error(
+                state,
+                f"validation reported {len(validation['errors'])} error(s); proceeding with valid evidence",
+            )
             state["report_status"] = "degraded"
-            _thinking(state, "validation reported errors - degrading")
-            return _write_report(state, output_dir)
+            _thinking(state, "validation reported errors - proceeding with valid evidence")
+
 
         # 2) Evidence extraction (only verified numbers reach the LLM) -----------------
         evidence = extract_evidence(profile, results, validation)
