@@ -4,7 +4,9 @@ from typing import Dict, Any, List
 import os
 import json
 from dotenv import load_dotenv
-load_dotenv()
+from dotenv import load_dotenv
+load_dotenv(override=True)
+from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from state import AgentState
@@ -18,15 +20,24 @@ from agents.analysis.prompts import (
 
 from tools.python_executor import execute_code
 
-# LLM Configuration: Use Groq by default, fallback to Gemini natively for local tests
-if os.environ.get("GROQ_API_KEY"):
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
-elif os.environ.get("GEMINI_API_KEY"):
-    # Fallback to Gemini for testing when GROQ_API_KEY is not defined
-    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
-else:
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
+# LLM Configuration: Check OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY from .env
+def _build_analysis_llm():
+    load_dotenv(override=True)
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    if openai_key:
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        model = os.getenv("MODEL", "gpt-4.1-nano")
+        return ChatOpenAI(model=model, api_key=openai_key, base_url=base_url, temperature=0.1)
+    elif os.getenv("GROQ_API_KEY"):
+        return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
+    elif os.getenv("GEMINI_API_KEY"):
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
+    else:
+        return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
+
+llm = _build_analysis_llm()
+
 
 MAX_RETRIES = 3
 
@@ -88,11 +99,13 @@ def planner_node(state: AgentState) -> AgentState:
             state["error_log"] = []
         state["error_log"].append(f"Planner: Failed to parse LLM output as JSON: {e}")
         state["error_log"].append(f"Raw output: {plan_text[:500]}")
+        state["analysis_plan"] = []
         state["status"] = "failed"
     except Exception as e:
         if state.get("error_log") is None:
             state["error_log"] = []
         state["error_log"].append(f"Planner: Unexpected error: {e}")
+        state["analysis_plan"] = []
         state["status"] = "failed"
     
     return state
@@ -101,7 +114,8 @@ def planner_node(state: AgentState) -> AgentState:
 def executor_node(state: AgentState) -> AgentState:
     """Executes the next pending task in the analysis plan."""
     
-    analysis_plan = state.get("analysis_plan", [])
+    analysis_plan = state.get("analysis_plan") or []
+
     profile = state.get("profile", {})
     csv_path = state.get("csv_path", "")
     
@@ -221,6 +235,20 @@ def executor_node(state: AgentState) -> AgentState:
     except Exception as e:
         pending_task["attempts"] = attempt
         pending_task["last_error"] = str(e)
+        log_entry = {
+            "task_id": task_id,
+            "task_name": task_name,
+            "attempt": attempt,
+            "code": "",
+            "success": False,
+            "stdout": "",
+            "stderr": "",
+            "error": str(e),
+        }
+        if state.get("execution_log") is None:
+            state["execution_log"] = []
+        state["execution_log"].append(log_entry)
+
         if "429" in str(e) or "rate" in str(e).lower():
             import time
             time.sleep(2.0)
@@ -229,6 +257,7 @@ def executor_node(state: AgentState) -> AgentState:
             print(f"[EXECUTOR] Task {task_id} failed due to exception: {e}")
         else:
             print(f"[EXECUTOR] Task {task_id} error: {e}, retrying (attempt {attempt})")
+
     
     return state
 

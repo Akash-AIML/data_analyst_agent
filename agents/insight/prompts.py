@@ -139,11 +139,13 @@ def build_consistency_prompt(insights: List[Dict[str, Any]]) -> str:
 def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> BaseChatModel:
     """Default chat model. Configured with fallback across OpenAI, Groq, and Gemini."""
     import os
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
     openai_key = os.getenv("OPENAI_API_KEY", "")
-    if openai_key and openai_key.startswith("sk-"):
+    if openai_key:
         from langchain_openai import ChatOpenAI
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        m = model or os.getenv("MODEL", "gpt-4o-mini")
+        m = model or os.getenv("MODEL", "gpt-4.1-nano")
         return ChatOpenAI(model=m, api_key=openai_key, base_url=base_url, temperature=temperature)
     elif os.getenv("GROQ_API_KEY"):
         from langchain_groq import ChatGroq
@@ -151,14 +153,11 @@ def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> Bas
     elif os.getenv("GEMINI_API_KEY"):
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=temperature)
-    elif openai_key:
-        from langchain_openai import ChatOpenAI
-        m = model or os.getenv("MODEL", "gpt-4o-mini")
-        return ChatOpenAI(model=m, temperature=temperature)
     else:
         from langchain_openai import ChatOpenAI
-        m = model or os.getenv("MODEL", "gpt-4o-mini")
+        m = model or os.getenv("MODEL", "gpt-4.1-nano")
         return ChatOpenAI(model=m, temperature=temperature)
+
 
 
 def structured_invoke(chat: BaseChatModel, schema: type[BaseModel], prompt: str) -> BaseModel:

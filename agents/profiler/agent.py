@@ -35,11 +35,12 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 def _build_llm():
     """Instantiate ChatOpenAI/ChatGroq/ChatGoogleGenerativeAI from environment variables."""
+    load_dotenv(override=True)
     api_key = os.getenv("OPENAI_API_KEY", "")
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     model = os.getenv("MODEL", "gpt-4.1-nano")
 
-    if api_key and api_key.startswith("sk-"):
+    if api_key:
         return ChatOpenAI(
             model=model,
             api_key=api_key,
@@ -52,17 +53,11 @@ def _build_llm():
     elif os.getenv("GEMINI_API_KEY"):
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
-    elif api_key:
-        return ChatOpenAI(
-            model=model,
-            api_key=api_key,
-            base_url=base_url,
-            temperature=0,
-        )
     else:
         raise EnvironmentError(
             "No valid LLM API key set (OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY)."
         )
+
 
 
 
