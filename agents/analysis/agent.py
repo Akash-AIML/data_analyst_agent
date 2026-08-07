@@ -219,10 +219,16 @@ def executor_node(state: AgentState) -> AgentState:
                 print(f"[EXECUTOR] Task {task_id} failed, will retry (attempt {attempt})")
             
     except Exception as e:
-        if state.get("error_log") is None:
-            state["error_log"] = []
-        state["error_log"].append(f"Executor: Unexpected error on task {task_id}: {e}")
-        pending_task["status"] = "failed"
+        pending_task["attempts"] = attempt
+        pending_task["last_error"] = str(e)
+        if "429" in str(e) or "rate" in str(e).lower():
+            import time
+            time.sleep(2.0)
+        if attempt >= MAX_RETRIES:
+            pending_task["status"] = "failed"
+            print(f"[EXECUTOR] Task {task_id} failed due to exception: {e}")
+        else:
+            print(f"[EXECUTOR] Task {task_id} error: {e}, retrying (attempt {attempt})")
     
     return state
 
