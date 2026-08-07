@@ -428,17 +428,21 @@ def extract_evidence(profile: Dict[str, Any],
 
     # Fallback: if evidence is empty, populate from profile descriptive stats
     if not evidence and profile:
+        cols_val = profile.get("columns")
+        num_cols = len(cols_val) if isinstance(cols_val, (dict, list, set)) else (float(cols_val) if isinstance(cols_val, (int, float)) else 0.0)
         profile_stats: Dict[str, Any] = {
             "total_rows": float(profile.get("rows", 0)),
-            "total_columns": float(profile.get("columns_count") or len(profile.get("columns", {}))),
+            "total_columns": float(profile.get("columns_count") or num_cols),
         }
-        for col_name, meta in (profile.get("columns") or {}).items():
+        cols_dict = cols_val if isinstance(cols_val, dict) else {}
+        for col_name, meta in cols_dict.items():
             if isinstance(meta, dict):
                 for k, v in meta.items():
                     if _is_number(v):
                         profile_stats[f"{col_name}_{k}"] = float(v)
         if profile_stats:
             evidence.append({"title": "Dataset Profile Summary", "stats": profile_stats})
+
 
     return evidence
 
