@@ -1,0 +1,10 @@
+pandas>=2.0.0
+ydata-profiling>=4.6.0
+langchain>=0.2.0
+langchain-openai>=0.1.0
+langgraph>=0.1.0
+pydantic>=2.0.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
