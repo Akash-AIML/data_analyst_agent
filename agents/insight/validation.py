@@ -96,6 +96,29 @@ def _categorical_columns(profile: Dict[str, Any]) -> List[str]:
     return [c for c, meta in inferred.items() if meta.get("type") in ("categorical", "string")]
 
 
+def _normalize_results(analysis_results) -> List[Dict[str, Any]]:
+    """Accept either contract shape for ``analysis_results``.
+
+    Canonical (Member 3): a list of result dicts. Member 2's node currently
+    writes a dict keyed by task name -> normalize that to the list form so
+    validation/evidence extraction never iterate over bare string keys.
+    """
+    results = analysis_results or []
+    if isinstance(results, dict):
+        out: List[Dict[str, Any]] = []
+        for name, payload in results.items():
+            if not isinstance(payload, dict):
+                continue
+            entry: Dict[str, Any] = dict(payload)
+            entry.setdefault("title", name)
+            entry.setdefault("task_id", name)
+            entry.setdefault("kind", "generic")
+            entry.setdefault("status", "completed")
+            out.append(entry)
+        return out
+    return list(results)
+
+
 # ---------------------------------------------------------------------------
 # Core validation
 # ---------------------------------------------------------------------------
@@ -106,7 +129,7 @@ def validate_results(
 ) -> Dict[str, Any]:
     """Validate analysis results against the profile. Pure + deterministic."""
     chk = Checker()
-    results = list(analysis_results or [])
+    results = _normalize_results(analysis_results)
 
     if not profile:
         chk.add("profile_present", False, "profile is empty - cannot validate")
@@ -339,7 +362,7 @@ def extract_evidence(profile: Dict[str, Any],
     never cite a number that failed validation.
     """
     evidence: List[Dict[str, Any]] = []
-    for res in analysis_results or []:
+    for res in _normalize_results(analysis_results):
         if not isinstance(res, dict):
             continue
         if res.get("status", "completed") != "completed":

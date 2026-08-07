@@ -1,54 +1,24 @@
-"""Shared AgentState contract for the Data Analyst Agent.
+"""Shared AgentState contract + Pydantic validation mirror.
 
-Owned jointly by all three team members. Member 3 drafted this; get M1/M2
-sign-off on the exact key names before the Day 2 integration session.
+Single source of truth for the ``AgentState`` TypedDict lives in
+``state/graph_state.py``; this module re-exports it and adds a validating
+Pydantic ``StateContract``/``build_state`` (used by Member 3's fixtures/tests
+so a mis-keyed field fails fast instead of silently drifting).
 
 Usage:
     from agents.state import AgentState, build_state
-
-The TypedDict documents the shape for all nodes; Pydantic validation
-(``validated_state``) is provided so that a mis-keyed field from any
-member fails fast during integration instead of silently drifting.
+    from state import AgentState            # same class
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from state.graph_state import AgentState  # noqa: F401  (re-exported)
 
-class AgentState(TypedDict, total=False):
-    """Everything one full pipeline run carries between nodes.
-
-    total=False so members can construct partial states (a node only
-    reads/writes the keys it owns) while the full contract stays explicit.
-    """
-
-    # --- M1: Profiler ------------------------------------------------
-    csv_path: str
-    profile: Dict[str, Any]
-    profile_report_path: str
-
-    # --- M2: Analysis (planner + executor + reflector) ---------------
-    analysis_plan: List[Dict[str, Any]]
-    analysis_results: List[Dict[str, Any]]
-    generated_files: List[str]
-    execution_log: List[Dict[str, Any]]
-    reflection_notes: List[str]
-
-    # --- M3: Insight & Report (this member) --------------------------
-    validation_report: Dict[str, Any]
-    insights: List[Dict[str, Any]]
-    recommendations: List[str]
-    report_path: str
-    pdf_path: Optional[str]
-    report_status: str  # "ok" | "degraded" | "failed"
-
-    # --- Shared ------------------------------------------------------
-    error_log: List[str]
-    thinking_log: List[str]
-    status: str  # pipeline status: "in_progress" | "completed" | "failed"
+__all__ = ["AgentState", "StateContract", "build_state"]
 
 
 # ---------------------------------------------------------------------------
