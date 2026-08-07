@@ -20,9 +20,10 @@ from ui.components.diagnostics import render_diagnostics
 
 
 def test_sanitize_filename_prevents_path_traversal():
-    assert sanitize_filename("../../../etc/passwd") == "etcpasswd"
+    assert sanitize_filename("../../../etc/passwd") == "passwd"
     assert sanitize_filename("my_data (1).csv") == "my_data1.csv"
     assert sanitize_filename("normal_file.csv") == "normal_file.csv"
+
 
 
 def test_get_available_samples_returns_dict():

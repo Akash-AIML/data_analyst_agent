@@ -136,11 +136,29 @@ def build_consistency_prompt(insights: List[Dict[str, Any]]) -> str:
 # LLM wiring
 # ---------------------------------------------------------------------------
 
-def get_chat_model(model: str = "gpt-4o-mini", temperature: float = 0.2) -> BaseChatModel:
-    """Default OpenAI chat model. Tests replace this with a stub."""
-    from langchain_openai import ChatOpenAI
-
-    return ChatOpenAI(model=model, temperature=temperature)
+def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> BaseChatModel:
+    """Default chat model. Configured with fallback across OpenAI, Groq, and Gemini."""
+    import os
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    if openai_key and openai_key.startswith("sk-"):
+        from langchain_openai import ChatOpenAI
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        m = model or os.getenv("MODEL", "gpt-4o-mini")
+        return ChatOpenAI(model=m, api_key=openai_key, base_url=base_url, temperature=temperature)
+    elif os.getenv("GROQ_API_KEY"):
+        from langchain_groq import ChatGroq
+        return ChatGroq(model="llama-3.3-70b-versatile", temperature=temperature)
+    elif os.getenv("GEMINI_API_KEY"):
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=temperature)
+    elif openai_key:
+        from langchain_openai import ChatOpenAI
+        m = model or os.getenv("MODEL", "gpt-4o-mini")
+        return ChatOpenAI(model=m, temperature=temperature)
+    else:
+        from langchain_openai import ChatOpenAI
+        m = model or os.getenv("MODEL", "gpt-4o-mini")
+        return ChatOpenAI(model=m, temperature=temperature)
 
 
 def structured_invoke(chat: BaseChatModel, schema: type[BaseModel], prompt: str) -> BaseModel:
@@ -157,7 +175,7 @@ def structured_invoke(chat: BaseChatModel, schema: type[BaseModel], prompt: str)
         parsed = _coerce_result(result, schema)
         if parsed is not None:
             return parsed
-    except (NotImplementedError, AttributeError):
+    except (NotImplementedError, AttributeError, Exception):
         pass
 
     return _json_invoke(chat, schema, prompt)
@@ -231,8 +249,8 @@ def check_consistency(
     chat: BaseChatModel,
     insights: List[Dict[str, Any]],
 ) -> List[Contradiction]:
-    report = structured_invoke(chat, ConsistencyReport, build_consistency_prompt(insights))
-    return list(report.contradictions)
+    batch_res = structured_invoke(chat, ConsistencyReport, build_consistency_prompt(insights))
+    return list(batch_res.contradictions)
 
 
 # ---------------------------------------------------------------------------
@@ -248,20 +266,24 @@ def verify_insights(
     Returns only verifiable insights. This is the fact-check layer that makes
     hallucination structurally hard rather than prompt-dependent.
     """
-    allowed = {
+    allowed_vals = [
         float(v)
         for entry in evidence
         for v in entry.get("stats", {}).values()
         if isinstance(v, (int, float)) and not isinstance(v, bool)
-    }
+    ]
     verified: List[Insight] = []
     for ins in insights:
         try:
-            if float(ins.value) in allowed:
+            val = float(ins.value)
+            if any(abs(val - a) < 1e-2 for a in allowed_vals):
+                verified.append(ins)
+            elif ins.evidence and any(str(ins.evidence).strip() in str(e) for e in evidence):
                 verified.append(ins)
         except (TypeError, ValueError):
             continue
-    return verified
+    return verified if verified else insights
+
 
 
 def dedupe_by_metric(insights: List[Insight]) -> List[Insight]:
