@@ -41,9 +41,15 @@ def build_insight_node(
         state.setdefault("thinking_log", [])
         state.setdefault("report_status", "ok")
 
-        profile = state.get("profile") or {}
+        profile = dict(state.get("profile") or {})
+        # Normalize: profile["columns"] may be an int (total count) not a dict of column metadata.
+        # validate_results expects either a dict or we strip it so it doesn't crash.
+        if not isinstance(profile.get("columns"), dict):
+            profile["_columns_count"] = profile.get("columns", 0)
+            profile["columns"] = {}
         results = state.get("analysis_results") or []
         pipeline_ok = bool(results)
+
 
 
         # 1) Deterministic validation -------------------------------------------------

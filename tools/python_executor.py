@@ -31,7 +31,30 @@ os.makedirs('output/analysis', exist_ok=True)
 {user_code}
 """
 
+def _sanitize_generated_code(code: str) -> str:
+    """
+    Strip lines that load a file via pd.read_csv / open() since df is already
+    injected by the sandbox template.  Catches common LLM hallucination patterns.
+    """
+    import re
+    bad_patterns = [
+        r"^\s*df\s*=\s*pd\.read_csv\(",
+        r"^\s*data\s*=\s*pd\.read_csv\(",
+        r"^\s*df\s*=\s*pd\.read_excel\(",
+        r"^\s*with\s+open\(",
+    ]
+    sanitized = []
+    skip_block = False
+    for line in code.splitlines():
+        # Skip the try/except block wrapping a read_csv if the pattern spans lines
+        if any(re.match(p, line) for p in bad_patterns):
+            continue
+        sanitized.append(line)
+    return "\n".join(sanitized)
+
+
 def execute_code(code: str, csv_path: str) -> dict:
+
     """
     Executes Python code in a subprocess sandbox.
     
@@ -48,8 +71,12 @@ def execute_code(code: str, csv_path: str) -> dict:
     temp_dir = tempfile.gettempdir()
     script_path = os.path.join(temp_dir, f"analysis_script_{script_id}.py")
     
+    # Sanitize: strip any pd.read_csv() calls the LLM may have hallucinated
+    code = _sanitize_generated_code(code)
+
     # Build the full sandbox script
     full_script = SANDBOX_TEMPLATE.format(
+
         csv_path=os.path.abspath(csv_path).replace('\\', '\\\\'),
         user_code=code
     )

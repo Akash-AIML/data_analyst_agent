@@ -33,7 +33,8 @@ Rules:
 
 CODE_GENERATION_PROMPT = """You are a Python data analyst. Generate executable Python code for the following task.
 
-Dataset: The CSV is already loaded as a pandas DataFrame called `df`.
+Dataset: The CSV is ALREADY loaded as a pandas DataFrame called `df`. Do NOT call pd.read_csv() or open any file.
+The variable `df` is already available in the execution scope — just use it directly.
 
 Task: {task_description}
 
@@ -48,15 +49,15 @@ Requirements:
 4. ONLY use the columns listed above — double-check column names match exactly
 5. Handle potential errors (e.g., empty columns, division by zero) gracefully
 6. Return ONLY the Python code, no explanation, no markdown backticks
+7. CRITICAL: Never call pd.read_csv() or open any file. The DataFrame `df` is pre-loaded.
 
 Example for descriptive_statistics:
-```python
 stats = df[{numeric_columns}].describe()
 print(stats)
-```
 
 Now generate code for: {task_description}
 """
+
 
 ERROR_FIX_PROMPT = """The following Python code failed during execution.
 
@@ -74,6 +75,10 @@ Please fix the code. Common issues:
 - Missing imports
 - Incorrect method names
 - Division by zero or empty data
+
+CRITICAL: The DataFrame `df` is pre-loaded. NEVER use pd.read_csv() or load any file.
+If the original code calls pd.read_csv(), remove it — the DataFrame is already available as `df`.
+
 
 Profile Info:
 - Numeric columns: {numeric_columns}
