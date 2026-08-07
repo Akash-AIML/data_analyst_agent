@@ -1,0 +1,32 @@
+{
+  "csv_path": "mocks/mock_data.csv",
+  "profile_report_path": "output/profile_report.html",
+  "profile": {
+    "numeric_columns": [
+      "id",
+      "age",
+      "salary"
+    ],
+    "categorical_columns": [
+      "first_name",
+      "last_name",
+      "email",
+      "city",
+      "joined"
+    ],
+    "datetime_columns": [],
+    "rows": 379773,
+    "columns": 8,
+    "missing_values": {
+      "id": 0,
+      "first_name": 0,
+      "last_name": 0,
+      "email": 0,
+      "age": 0,
+      "city": 0,
+      "salary": 0,
+      "joined": 0
+    },
+    "duplicates": 0
+  }
+}
