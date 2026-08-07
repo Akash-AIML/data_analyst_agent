@@ -71,18 +71,23 @@ class ProfilingTool(BaseTool):
         if df.empty or df.shape[1] == 0:
             return "ERROR: CSV has no usable data."
 
-        # --- Generate profile report ---
+        # --- Generate profile report with downsampling for large datasets ---
         try:
+            df_sample = df
+            if len(df) > 50000:
+                df_sample = df.sample(10000, random_state=42)
+
             profile = ProfileReport(
-                df,
+                df_sample,
                 title="Dataset Profile",
                 explorative=True,
-                minimal=True,  # faster; set False for full report
+                minimal=True,  # fast profiling for large datasets
             )
             base_name = os.path.splitext(os.path.basename(csv_path))[0]
             report_path = os.path.join(output_dir, f"{base_name}_profile.html")
             profile.to_file(report_path)
             return f"SUCCESS: Report saved to {report_path}"
+
         except Exception as e:
             return f"ERROR: Profiling failed - {str(e)}"
 

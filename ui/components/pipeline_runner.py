@@ -82,6 +82,8 @@ def render_pipeline_runner():
                 # Persist final state in Streamlit session state
                 st.session_state["state"] = final_state
                 st.session_state["report_status"] = report_status
+                st.rerun()
+
 
             except Exception as exc:
                 status_container.update(

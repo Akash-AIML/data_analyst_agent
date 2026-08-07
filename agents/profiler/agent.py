@@ -12,6 +12,9 @@ from typing import Dict, Any
 import pandas as pd
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from langchain_core.language_models.chat_models import BaseChatModel
+import time
+
 
 from state import AgentState
 from tools.profiling_tool import ProfilingTool
@@ -33,6 +36,29 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 # LLM — fully configured from .env
 # ---------------------------------------------------------------------------
+class ResilientFallbackModel(BaseChatModel):
+
+    primary: Any
+    fallback: Any
+
+    def _generate(self, messages: Any, stop: Any = None, **kwargs: Any) -> Any:
+        try:
+            return self.primary._generate(messages, stop=stop, **kwargs)
+        except Exception:
+            for attempt in range(1, 4):
+                try:
+                    return self.fallback._generate(messages, stop=stop, **kwargs)
+                except Exception as fb_err:
+                    if attempt < 3:
+                        time.sleep(3.0)
+                    else:
+                        raise fb_err
+
+    @property
+    def _llm_type(self) -> str:
+        return "resilient_fallback"
+
+
 def _build_llm():
     """Instantiate ChatOpenAI/ChatGroq/ChatGoogleGenerativeAI from environment variables with Groq fallback."""
     load_dotenv(override=True)
@@ -61,9 +87,8 @@ def _build_llm():
             temperature=0,
             max_retries=0,
         )
-
         if groq_llm:
-            return primary_llm.with_fallbacks([groq_llm])
+            return ResilientFallbackModel(primary=primary_llm, fallback=groq_llm)
         return primary_llm
     elif groq_llm:
         return groq_llm
@@ -74,6 +99,7 @@ def _build_llm():
         raise EnvironmentError(
             "No valid LLM API key set (OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY)."
         )
+
 
 
 
