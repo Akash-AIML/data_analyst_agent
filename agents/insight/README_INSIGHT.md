@@ -69,14 +69,27 @@ node = build_insight_node(FakeChatModel())
 `agents/state.py` is the single source of truth; `build_state()` + `StateContract`
 validate it so a mis-keyed field from any member fails fast at integration.
 
-## Tests
+## Test / demo
 ```bash
-python -m pytest agents/insight/tests -q
+python -m pytest agents/insight/tests -q   # 35 tests, incl. the chat core
 ```
 Covers: validation edge cases (constant-column NaN correlations, case-insensitive
 column matching, missing-rate mismatch, out-of-bounds stats), report resilience
-(0 / partial / missing images, PDF fallback, never-raises), and end-to-end node runs
-(healthy, hallucinating LLM, failed upstream, garbage state).
+(0 / partial / missing images, PDF fallback, never-raises), end-to-end node runs
+(healthy, hallucinating LLM, failed upstream, garbage state), and the report-grounded
+chat builder / answer / persistence.
+
+## Chatbot (Streamlit, no API key needed)
+```bash
+venv/bin/streamlit run agents/insight/streamlit_app.py
+```
+Generates a sample report (fixtures as stand-in M1/M2 + built-in demo model), then
+you ask questions and get answers grounded ONLY in that report. Off-report questions
+get an honest "not in this report". Flip the "use real OpenAI" toggle when
+`OPENAI_API_KEY` is set. You can also upload a `report_state.json` (produced by
+`chat.save_report_state`) instead of regenerating.
+- Core logic (UI-free, testable): `agents/insight/chat.py` — `build_context`,
+  `answer`, `save_report_state` / `load_report_state`.
 
 ## Integration handshake (confirm with team)
 - `analysis_results` item schema (`task_id`, `title`, `kind`, `column`, `stats`, `files`).
