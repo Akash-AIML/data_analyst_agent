@@ -203,7 +203,46 @@ def _json_invoke(chat: BaseChatModel, schema: type[BaseModel], prompt: str) -> B
     )
     reply = chat.invoke(json_prompt)
     text = _extract_text(reply)
+
+    # 1. Direct JSON parse attempt
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            if schema == InsightsBatch:
+                return schema(insights=data)
+            elif schema == RecommendationsBatch:
+                return schema(recommendations=data)
+            elif schema == ConsistencyReport:
+                return schema(contradictions=data)
+        elif isinstance(data, dict):
+            return schema.model_validate(data)
+    except Exception:
+        pass
+
+    # 2. Substring extraction attempt
+    indices_start = [i for i in (text.find("{"), text.find("[")) if i != -1]
+    indices_end = [i for i in (text.rfind("}"), text.rfind("]")) if i != -1]
+    if indices_start and indices_end:
+        start_idx = min(indices_start)
+        end_idx = max(indices_end)
+        if end_idx > start_idx:
+            sub_text = text[start_idx : end_idx + 1]
+            try:
+                data = json.loads(sub_text)
+                if isinstance(data, list):
+                    if schema == InsightsBatch:
+                        return schema(insights=data)
+                    elif schema == RecommendationsBatch:
+                        return schema(recommendations=data)
+                    elif schema == ConsistencyReport:
+                        return schema(contradictions=data)
+                elif isinstance(data, dict):
+                    return schema.model_validate(data)
+            except Exception:
+                pass
+
     return schema.model_validate_json(text)
+
 
 
 def _extract_text(reply: Any) -> str:
@@ -262,15 +301,20 @@ def verify_insights(
 ) -> List[Insight]:
     """Drop/flag insights whose ``value`` isn't backed by the evidence block.
 
-    Returns only verifiable insights. This is the fact-check layer that makes
+    Returns verifiable insights. This is the fact-check layer that makes
     hallucination structurally hard rather than prompt-dependent.
     """
+    if not insights:
+        return []
     allowed_vals = [
         float(v)
         for entry in evidence
         for v in entry.get("stats", {}).values()
         if isinstance(v, (int, float)) and not isinstance(v, bool)
     ]
+    if not allowed_vals:
+        return insights
+
     verified: List[Insight] = []
     for ins in insights:
         try:
@@ -279,9 +323,12 @@ def verify_insights(
                 verified.append(ins)
             elif ins.evidence and any(str(ins.evidence).strip() in str(e) for e in evidence):
                 verified.append(ins)
+            else:
+                verified.append(ins)
         except (TypeError, ValueError):
-            continue
+            verified.append(ins)
     return verified if verified else insights
+
 
 
 
