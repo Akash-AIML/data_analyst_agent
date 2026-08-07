@@ -153,9 +153,23 @@ class ResilientFallbackModel(BaseChatModel):
                     else:
                         raise fb_err
 
+    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
+        try:
+            return self.primary.with_structured_output(schema, **kwargs)
+        except Exception:
+            for attempt in range(1, 4):
+                try:
+                    return self.fallback.with_structured_output(schema, **kwargs)
+                except Exception as fb_err:
+                    if attempt < 3:
+                        time.sleep(3.0)
+                    else:
+                        raise fb_err
+
     @property
     def _llm_type(self) -> str:
         return "resilient_fallback"
+
 
 
 def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> BaseChatModel:

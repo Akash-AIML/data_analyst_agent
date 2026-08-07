@@ -8,8 +8,10 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.language_models.chat_models import BaseChatModel
+import time
 from state import AgentState
+
 
 from agents.analysis.prompts import (
     PLANNER_SYSTEM_PROMPT,
@@ -21,7 +23,43 @@ from agents.analysis.prompts import (
 from tools.python_executor import execute_code
 
 # LLM Configuration: Check OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY from .env
+class ResilientFallbackModel(BaseChatModel):
+    primary: Any
+    fallback: Any
+
+    def _generate(self, messages: Any, stop: Any = None, **kwargs: Any) -> Any:
+        try:
+            return self.primary._generate(messages, stop=stop, **kwargs)
+        except Exception:
+            for attempt in range(1, 4):
+                try:
+                    return self.fallback._generate(messages, stop=stop, **kwargs)
+                except Exception as fb_err:
+                    if attempt < 3:
+                        time.sleep(3.0)
+                    else:
+                        raise fb_err
+
+    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
+        try:
+            return self.primary.with_structured_output(schema, **kwargs)
+        except Exception:
+            for attempt in range(1, 4):
+                try:
+                    return self.fallback.with_structured_output(schema, **kwargs)
+                except Exception as fb_err:
+                    if attempt < 3:
+                        time.sleep(3.0)
+                    else:
+                        raise fb_err
+
+    @property
+    def _llm_type(self) -> str:
+        return "resilient_fallback"
+
+
 def _build_analysis_llm():
+    """Instantiate ChatOpenAI with Groq fallback."""
     load_dotenv(override=True)
     groq_key = os.getenv("GROQ_API_KEY", "")
     groq_llm = None
@@ -48,7 +86,7 @@ def _build_analysis_llm():
         )
 
         if groq_llm:
-            return primary_llm.with_fallbacks([groq_llm])
+            return ResilientFallbackModel(primary=primary_llm, fallback=groq_llm)
         return primary_llm
     elif groq_llm:
         return groq_llm
