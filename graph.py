@@ -1,12 +1,16 @@
 """LangGraph integration pipeline linking Member 1 (Profiler), Member 2 (Analysis), and Member 3 (Insight)."""
 
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 from typing import Dict, Any
 from state import AgentState
 from agents.insight.insight_node import build_insight_node
 
 # Placeholder stubs for M1 & M2 if not yet merged
 try:
-    from agents.profiler.profiler_node import profiler_node
+    from agents.profiler_agent import profiler_node
 except ImportError:
     def profiler_node(state: Dict[str, Any]) -> Dict[str, Any]:
         """Stub profiler node used prior to Member 1 merge."""
@@ -17,8 +21,7 @@ except ImportError:
         return state
 
 try:
-    from agents.analysis.planner_node import planner_node
-    from agents.analysis.executor_node import executor_node
+    from agents.analysis_agent import planner_node, executor_node, reflector_node
 except ImportError:
     def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
         """Stub planner node used prior to Member 2 merge."""
@@ -39,6 +42,10 @@ except ImportError:
         state["generated_files"] = []
         return state
 
+    def reflector_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Stub reflector node used prior to Member 2 merge."""
+        return state
+
 def create_pipeline(llm_model=None):
     """Returns a step-by-step pipeline runner connecting M1, M2, and M3."""
     insight_node = build_insight_node(llm_model)
@@ -47,8 +54,9 @@ def create_pipeline(llm_model=None):
         s1 = profiler_node(initial_state)
         s2 = planner_node(s1)
         s3 = executor_node(s2)
-        s4 = insight_node(s3)
-        return s4
+        s4 = reflector_node(s3)
+        s5 = insight_node(s4)
+        return s5
 
     return run_pipeline
 
