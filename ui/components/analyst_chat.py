@@ -26,8 +26,9 @@ def _get_chat_model():
             api_key=openai_key,
             base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             temperature=0.1,
-            max_retries=1,
+            max_retries=0,
         )
+
         if groq_llm:
             return primary.with_fallbacks([groq_llm])
         return primary

@@ -165,8 +165,9 @@ def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> Bas
             api_key=openai_key,
             base_url=base_url,
             temperature=temperature,
-            max_retries=1,
+            max_retries=0,
         )
+
         if groq_llm:
             return primary_llm.with_fallbacks([groq_llm])
         return primary_llm
