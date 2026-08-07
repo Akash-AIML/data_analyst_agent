@@ -1,0 +1,31 @@
+Order_ID,Region,Product_Category,Sales,Quantity,Discount,Order_Date,Customer_ID,Ship_Mode,Notes
+10001,East,Furniture,452.50,3,0.1,2023-01-05,C1001,Standard Class,
+10002,West,Technology,899.99,1,0.0,2023-01-07,C1002,First Class,Good quality
+10003,South,Office Supplies,34.20,5,0.05,2023-01-10,C1003,Standard Class,
+10004,East,Furniture,1200.00,2,0.2,2023-01-12,C1004,Second Class,Damaged on arrival
+10005,Central,Technology,,,0.15,2023-01-14,C1005,Standard Class,
+10006,West,Office Supplies,15.80,10,0.0,2023-01-15,C1006,Same Day,Bulk order
+10007,East,Technology,1540.00,1,0.0,2023-01-18,C1007,First Class,
+10008,South,Furniture,320.00,4,0.1,2023-01-20,C1008,Standard Class,
+10009,Central,Office Supplies,88.50,6,0.05,2023-01-22,C1009,Second Class,
+10010,West,Technology,450.00,2,0.0,2023-01-25,C1010,Standard Class,
+10011,East,Office Supplies,,3,0.0,2023-01-27,C1001,Standard Class,Repeat customer
+10012,North,Furniture,760.00,1,0.15,2023-01-30,C1011,First Class,
+10013,North,Technology,2200.00,1,0.0,2023-02-02,C1012,First Class,High value
+10014,South,Office Supplies,22.40,8,0.0,2023-02-05,C1013,Standard Class,
+10015,West,Furniture,540.00,2,0.1,2023-02-08,C1014,Second Class,
+10016,Central,Technology,670.00,1,0.05,2023-02-10,C1015,Standard Class,
+10017,East,Office Supplies,95.00,4,0.0,2023-02-13,C1016,Same Day,
+10018,North,Technology,310.00,2,0.0,2023-02-15,C1017,Standard Class,
+10019,South,Furniture,,1,0.2,2023-02-18,C1018,First Class,
+10020,West,Office Supplies,48.00,12,0.0,2023-02-20,C1019,Standard Class,Promo applied
+10021,East,Technology,980.00,1,0.1,2023-02-22,C1020,Second Class,
+10022,Central,Furniture,1100.00,2,0.0,2023-02-24,C1001,Standard Class,
+10023,North,Office Supplies,60.00,5,0.05,2023-02-27,C1021,Standard Class,
+10024,South,Technology,750.00,2,0.0,2023-03-01,C1022,First Class,
+10025,West,Furniture,430.00,3,0.1,2023-03-03,C1023,Standard Class,
+10026,East,Office Supplies,28.90,7,0.0,2023-03-06,C1024,Standard Class,
+10027,Central,Technology,1650.00,1,0.0,2023-03-08,C1025,Second Class,
+10028,North,Furniture,890.00,2,0.15,2023-03-10,C1026,First Class,
+10029,South,Office Supplies,44.00,9,0.05,2023-03-12,C1027,Standard Class,
+10030,West,Technology,560.00,1,0.0,2023-03-15,C1028,Standard Class,

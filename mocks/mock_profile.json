@@ -1,0 +1,41 @@
+{
+  "dataset_name": "sample_sales",
+  "rows": 30,
+  "columns": 10,
+  "numeric_columns": ["Sales", "Quantity", "Discount"],
+  "categorical_columns": ["Region", "Product_Category", "Ship_Mode"],
+  "datetime_columns": ["Order_Date"],
+  "id_columns": ["Order_ID", "Customer_ID"],
+  "missing_values": {
+    "Sales": 3,
+    "Quantity": 1
+  },
+  "duplicates": 0,
+  "constant_columns": [],
+  "high_cardinality_columns": ["Notes"],
+  "memory_usage_mb": 0.01,
+  "sample_rows": 5,
+  "descriptive_stats": {
+    "Sales": {
+      "mean": 612.45,
+      "median": 495.0,
+      "std": 495.32,
+      "min": 15.8,
+      "max": 2200.0
+    },
+    "Quantity": {
+      "mean": 3.97,
+      "median": 3.0,
+      "std": 3.01,
+      "min": 1.0,
+      "max": 12.0
+    },
+    "Discount": {
+      "mean": 0.057,
+      "median": 0.05,
+      "std": 0.058,
+      "min": 0.0,
+      "max": 0.2
+    }
+  }
+}

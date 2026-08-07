@@ -1,6 +1,34 @@
+# Secrets
+.env
+.env.example
+prompt.md
+
+# Python
 __pycache__/
 *.py[cod]
-venv/
-output/
-.pytest_cache/
+*.pyo
+*.pyd
 *.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Generated output / artifacts
+output/
+output/profiles/*.html
+uploads/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Agent scratch
+.agent
