@@ -103,6 +103,16 @@ async def analyze(file: UploadFile = File(...)):
             detail=f"Only CSV files are accepted. Received: '{file.filename}'",
         )
 
+    # --- Check file size ---
+    max_mb = float(os.getenv("MAX_FILE_SIZE_MB", "200"))
+    contents = await file.read()
+    size_mb = len(contents) / (1024 * 1024)
+    if size_mb > max_mb:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {size_mb:.1f} MB (limit: {max_mb:.0f} MB).",
+        )
+
     # --- Save upload to a unique temp path ---
     unique_id = uuid.uuid4().hex
     safe_name = f"{unique_id}_{file.filename}"
@@ -110,7 +120,7 @@ async def analyze(file: UploadFile = File(...)):
 
     try:
         with open(temp_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+            f.write(contents)
         logger.info("Saved upload to %s", temp_path)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {exc}")

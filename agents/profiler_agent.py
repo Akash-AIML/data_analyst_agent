@@ -59,23 +59,169 @@ _profiling_tool = ProfilingTool()
 # ---------------------------------------------------------------------------
 # Helper: extract DataFrame summaries
 # ---------------------------------------------------------------------------
+def _compute_descriptive_stats(df: pd.DataFrame) -> dict:
+    """
+    Compute descriptive_stats directly from pandas — never rely on the LLM for this.
+    Returns a dict of {col_name: {mean, median, std, min, max}} for all numeric cols
+    that are NOT obvious ID columns.
+    """
+    id_hints = {"id", "key", "code", "num", "no", "number"}
+    stats: dict = {}
+    numeric_cols = df.select_dtypes(include=["int64", "float64", "int32", "float32"]).columns
+    for col in numeric_cols:
+        col_lower = col.lower()
+        # Skip obvious ID columns
+        if any(hint in col_lower for hint in id_hints):
+            continue
+        s = df[col].dropna()
+        if s.empty:
+            continue
+        stats[col] = {
+            "mean":   round(float(s.mean()), 6),
+            "median": round(float(s.median()), 6),
+            "std":    round(float(s.std()), 6),
+            "min":    round(float(s.min()), 6),
+            "max":    round(float(s.max()), 6),
+        }
+    return stats
+
+
 def _extract_df_info(df: pd.DataFrame, csv_path: str) -> Dict[str, Any]:
-    """Return a dict of summary strings for the LLM prompt."""
+    """Return a compact dict of summary strings safe for any LLM context window."""
     missing_counts = df.isnull().sum()
     missing_nonzero = missing_counts[missing_counts > 0]
+
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    non_numeric_cols = [c for c in df.columns if c not in numeric_cols]
+
+    # Always limit describe to numeric cols only (no string columns that bloat the output)
+    # and cap at 20 columns to stay well within context limits
+    describe_cols = numeric_cols[:20]
+    describe_str = df[describe_cols].describe().to_string() if describe_cols else "(no numeric columns)"
+
+    # Cap dtypes output — list all columns but truncate representation
+    MAX_DTYPE_COLS = 80
+    if len(df.columns) > MAX_DTYPE_COLS:
+        dtypes_str = df.dtypes.head(MAX_DTYPE_COLS).to_string() + (
+            f"\n... ({len(df.columns) - MAX_DTYPE_COLS} more columns omitted)"
+        )
+    else:
+        dtypes_str = df.dtypes.to_string()
+
+    # Cap head preview to first 20 columns
+    head_str = df.head(5).iloc[:, :20].to_string()
+
+    # Cap nunique to 80 cols
+    nunique_str = df.nunique().head(80).to_string() + (
+        f"\n... ({len(df.columns) - 80} more columns omitted)" if len(df.columns) > 80 else ""
+    )
 
     return {
         "csv_path": csv_path,
         "shape": df.shape,
-        "dtypes": df.dtypes.to_string(),
-        "head": df.head(5).to_string(),
-        "describe": df.describe(include="all").to_string(),
-        "nunique": df.nunique().to_string(),
+        "dtypes": dtypes_str,
+        "head": head_str,
+        "describe": describe_str,
+        "nunique": nunique_str,
         "missing_info": (
             missing_nonzero.to_string() if not missing_nonzero.empty else "No missing values"
         ),
         "duplicates": int(df.duplicated().sum()),
     }
+
+
+def _build_profile_from_pandas(df: pd.DataFrame, csv_path: str) -> dict:
+    """
+    Pure pandas fallback — builds the full ProfileOutput-compatible dict
+    without any LLM call. Used when the LLM fails on very large/wide datasets.
+    """
+    import os as _os
+    id_hints = {"id", "key", "code", "num", "no", "number"}
+    missing_counts = df.isnull().sum()
+
+    numeric_cols, categorical_cols, datetime_cols, id_cols = [], [], [], []
+    constant_cols, high_card_cols = [], []
+
+    for col in df.columns:
+        col_lower = col.lower()
+        dtype = df[col].dtype
+        nunique = df[col].nunique(dropna=True)
+
+        is_id_name = any(hint in col_lower for hint in id_hints)
+
+        if is_id_name:
+            id_cols.append(col)
+        elif dtype in ["int64", "float64", "int32", "float32"]:
+            numeric_cols.append(col)
+        elif dtype == "object":
+            # Try datetime parse on a sample (suppress non-critical format warnings)
+            try:
+                import warnings as _w, pandas as _pd
+                with _w.catch_warnings():
+                    _w.simplefilter("ignore")
+                    _pd.to_datetime(df[col].dropna().head(20), errors="raise")
+                datetime_cols.append(col)
+            except Exception:
+                if nunique == 1:
+                    constant_cols.append(col)
+                elif nunique <= 50:
+                    categorical_cols.append(col)
+                else:
+                    high_card_cols.append(col)
+        elif str(dtype).startswith("datetime"):
+            datetime_cols.append(col)
+        else:
+            categorical_cols.append(col)
+
+        if df[col].nunique() == 1 and col not in constant_cols:
+            constant_cols.append(col)
+
+    stats = _compute_descriptive_stats(df)
+    memory_mb = round(df.memory_usage(deep=True).sum() / 1e6, 6)
+    filename = _os.path.basename(csv_path)
+
+    return {
+        "dataset_name": filename,
+        "rows": int(df.shape[0]),
+        "columns": int(df.shape[1]),
+        "numeric_columns": numeric_cols,
+        "categorical_columns": categorical_cols,
+        "datetime_columns": datetime_cols,
+        "id_columns": id_cols,
+        "missing_values": {c: int(v) for c, v in missing_counts.items() if v > 0},
+        "duplicates": int(df.duplicated().sum()),
+        "constant_columns": constant_cols,
+        "high_cardinality_columns": high_card_cols,
+        "memory_usage_mb": memory_mb,
+        "sample_rows": 5,
+        "descriptive_stats": stats,
+    }
+
+
+def _build_minimal_prompt(df: pd.DataFrame, csv_path: str, report_path: str) -> str:
+    """
+    Build a drastically trimmed prompt used as the second LLM attempt for very
+    large/wide datasets. Only sends column names + dtypes + shape — no describe,
+    no head, no nunique — just enough for the LLM to classify column types.
+    """
+    import os as _os
+    col_type_lines = "\n".join(
+        f"  {col}: {dtype}" for col, dtype in df.dtypes.items()
+    )
+    missing_counts = df.isnull().sum()
+    missing_nonzero = missing_counts[missing_counts > 0]
+    missing_str = (
+        missing_nonzero.to_string() if not missing_nonzero.empty else "No missing values"
+    )
+    return (
+        f"CSV file: {_os.path.basename(csv_path)}\n"
+        f"Shape: {df.shape[0]} rows x {df.shape[1]} columns\n"
+        f"Duplicate rows: {int(df.duplicated().sum())}\n\n"
+        f"Column names and dtypes:\n{col_type_lines}\n\n"
+        f"Missing values (columns with > 0 missing only):\n{missing_str}\n\n"
+        f"Profile report path: {report_path}\n\n"
+        "Classify every column into exactly one category and return the structured profile."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -168,31 +314,46 @@ def profiler_node(state: AgentState) -> AgentState:
     # 4. Build LLM prompt
     # ------------------------------------------------------------------
     info = _extract_df_info(df, csv_path)
+
+    # Compute descriptive_stats directly from pandas — always reliable, no LLM needed
+    computed_stats = _compute_descriptive_stats(df)
+
     user_prompt = PROFILER_USER_PROMPT_TEMPLATE.format(**info, report_path=report_path)
 
     # ------------------------------------------------------------------
-    # 5. LLM call with structured output
+    # 5. LLM call with structured output (with minimal-prompt retry + pandas fallback)
     # ------------------------------------------------------------------
     logger.info("Calling LLM (model=%s) for structured profile...", os.getenv("MODEL", "gpt-4.1-nano"))
-    try:
-        llm = _build_llm()
-        structured_llm = llm.with_structured_output(ProfileOutput, method="function_calling")
-        profile_obj: ProfileOutput = structured_llm.invoke(
-            [
-                {"role": "system", "content": PROFILER_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ]
-        )
-        profile_dict = profile_obj.model_dump()
-        logger.info("LLM returned a valid ProfileOutput.")
-    except EnvironmentError as env_err:
-        state["error_log"].append(str(env_err))
-        state["status"] = "failed"
-        return state
-    except Exception as exc:
-        state["error_log"].append(f"LLM profiling failed: {exc}")
-        state["status"] = "failed"
-        return state
+    profile_dict: dict | None = None
+
+    for attempt, prompt in enumerate([user_prompt, _build_minimal_prompt(df, csv_path, report_path)], start=1):
+        try:
+            llm = _build_llm()
+            structured_llm = llm.with_structured_output(ProfileOutput, method="function_calling")
+            profile_obj: ProfileOutput = structured_llm.invoke(
+                [
+                    {"role": "system", "content": PROFILER_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ]
+            )
+            profile_dict = profile_obj.model_dump()
+            logger.info("LLM returned a valid ProfileOutput (attempt %d).", attempt)
+            break
+        except EnvironmentError as env_err:
+            state["error_log"].append(str(env_err))
+            state["status"] = "failed"
+            return state
+        except Exception as exc:
+            logger.warning("LLM attempt %d failed: %s", attempt, exc)
+            if attempt == 2:
+                # Both LLM attempts failed — fall back to pure pandas profiling
+                logger.warning("Both LLM attempts failed. Using pandas-only fallback.")
+                profile_dict = _build_profile_from_pandas(df, csv_path)
+
+    # Always overwrite descriptive_stats with the pandas-computed version.
+    # This guarantees it is never missing or wrong, regardless of LLM context limits.
+    profile_dict["descriptive_stats"] = computed_stats
+    logger.info("Merged pandas-computed descriptive_stats (%d columns).", len(computed_stats))
 
     # ------------------------------------------------------------------
     # 6. Self-validation
