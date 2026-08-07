@@ -84,16 +84,20 @@ def _numeric_columns(profile: Dict[str, Any]) -> List[str]:
     cols = profile.get("numeric_columns", []) or []
     if cols:
         return list(cols)
-    inferred = profile.get("columns", {})
-    return [c for c, meta in inferred.items() if meta.get("type") == "numeric"]
+    inferred = profile.get("columns")
+    if not isinstance(inferred, dict):
+        return []
+    return [c for c, meta in inferred.items() if isinstance(meta, dict) and meta.get("type") == "numeric"]
 
 
 def _categorical_columns(profile: Dict[str, Any]) -> List[str]:
     cols = profile.get("categorical_columns", []) or []
     if cols:
         return list(cols)
-    inferred = profile.get("columns", {})
-    return [c for c, meta in inferred.items() if meta.get("type") in ("categorical", "string")]
+    inferred = profile.get("columns")
+    if not isinstance(inferred, dict):
+        return []
+    return [c for c, meta in inferred.items() if isinstance(meta, dict) and meta.get("type") in ("categorical", "string")]
 
 
 def _normalize_results(analysis_results) -> List[Dict[str, Any]]:
@@ -103,10 +107,11 @@ def _normalize_results(analysis_results) -> List[Dict[str, Any]]:
     writes a dict keyed by task name -> normalize that to the list form so
     validation/evidence extraction never iterate over bare string keys.
     """
-    results = analysis_results or []
-    if isinstance(results, dict):
+    if not analysis_results:
+        return []
+    if isinstance(analysis_results, dict):
         out: List[Dict[str, Any]] = []
-        for name, payload in results.items():
+        for name, payload in analysis_results.items():
             if not isinstance(payload, dict):
                 continue
             entry: Dict[str, Any] = dict(payload)
@@ -114,55 +119,12 @@ def _normalize_results(analysis_results) -> List[Dict[str, Any]]:
             entry.setdefault("task_id", name)
             entry.setdefault("kind", "generic")
             entry.setdefault("status", "completed")
-
-            # Extract numeric key-value pairs from stdout if stats is missing/empty
-            if not entry.get("stats") and entry.get("stdout"):
-                extracted: Dict[str, float] = {}
-                for line in entry["stdout"].splitlines():
-                    for sep in (":", "="):
-                        if sep in line:
-                            parts = line.split(sep, 1)
-                            k = parts[0].strip()
-                            v = parts[1].strip()
-                            tokens = v.split()
-                            if tokens:
-                                try:
-                                    val = float(tokens[0].replace(",", ""))
-                                    if math.isfinite(val):
-                                        extracted[k] = val
-                                except ValueError:
-                                    pass
-                if extracted:
-                    entry["stats"] = extracted
             out.append(entry)
         return out
+    if isinstance(analysis_results, list):
+        return [r for r in analysis_results if isinstance(r, dict)]
+    return []
 
-    out_list: List[Dict[str, Any]] = []
-    for item in results:
-        if isinstance(item, dict):
-            entry = dict(item)
-            if not entry.get("stats") and entry.get("stdout"):
-                extracted = {}
-                for line in entry["stdout"].splitlines():
-                    for sep in (":", "="):
-                        if sep in line:
-                            parts = line.split(sep, 1)
-                            k = parts[0].strip()
-                            v = parts[1].strip()
-                            tokens = v.split()
-                            if tokens:
-                                try:
-                                    val = float(tokens[0].replace(",", ""))
-                                    if math.isfinite(val):
-                                        extracted[k] = val
-                                except ValueError:
-                                    pass
-                if extracted:
-                    entry["stats"] = extracted
-            out_list.append(entry)
-        else:
-            out_list.append(item)
-    return out_list
 
 
 
@@ -362,7 +324,8 @@ def _check_null_consistency(
     resolved = _find_col(str(col), all_profile_cols) if all_profile_cols else None
     if not resolved:
         return
-    meta = (profile.get("columns") or {}).get(resolved, {})
+    cols_dict = profile.get("columns") if isinstance(profile.get("columns"), dict) else {}
+    meta = cols_dict.get(resolved, {})
     prof_missing = meta.get("missing_pct") or meta.get("missing_rate")
     if prof_missing is None and isinstance(meta.get("missing"), (int, float)):
         rows = profile.get("rows")
@@ -392,7 +355,8 @@ def _check_cardinality(
     resolved = _find_col(str(col), all_profile_cols) if all_profile_cols else None
     if not resolved:
         return
-    meta = (profile.get("columns") or {}).get(resolved, {})
+    cols_dict = profile.get("columns") if isinstance(profile.get("columns"), dict) else {}
+    meta = cols_dict.get(resolved, {})
     prof_unique = meta.get("unique")
     if _is_number(prof_unique) and prof_unique > 0 and unique > prof_unique:
         chk.warn(f"{prefix}_cardinality",

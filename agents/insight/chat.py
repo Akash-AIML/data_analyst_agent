@@ -60,16 +60,25 @@ def build_context(state: Dict[str, Any]) -> str:
     errors = validation.get("errors") or []
     warnings = validation.get("warnings") or []
 
+    cols_val = profile.get("columns")
+    if isinstance(cols_val, (dict, list, tuple, set)):
+        num_cols = len(cols_val)
+    elif isinstance(cols_val, (int, float)):
+        num_cols = float(cols_val)
+    else:
+        num_cols = 0
+
     sections = [
         ("DATASET", {
             "csv_path": state.get("csv_path"),
             "rows": profile.get("rows"),
-            "columns": profile.get("columns_count") or len(profile.get("columns", {})),
+            "columns": profile.get("columns_count") or num_cols,
             "numeric_columns": profile.get("numeric_columns"),
             "categorical_columns": profile.get("categorical_columns"),
             "datetime_columns": profile.get("datetime_columns"),
         }),
-        ("PROFILE_COLUMNS", profile.get("columns", {})),
+        ("PROFILE_COLUMNS", cols_val if isinstance(cols_val, dict) else {}),
+
         ("VALIDATION", {
             "status": validation.get("status"),
             "failed_checks": [
