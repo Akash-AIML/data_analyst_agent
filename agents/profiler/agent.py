@@ -13,10 +13,11 @@ import pandas as pd
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-from state.graph_state import AgentState
+from state import AgentState
 from tools.profiling_tool import ProfilingTool
-from agents.profiler_prompts import PROFILER_SYSTEM_PROMPT, PROFILER_USER_PROMPT_TEMPLATE
-from agents.profiler_schemas import ProfileOutput
+from agents.profiler.prompts import PROFILER_SYSTEM_PROMPT, PROFILER_USER_PROMPT_TEMPLATE
+from agents.profiler.schemas import ProfileOutput
+
 
 # ---------------------------------------------------------------------------
 # Environment & logging

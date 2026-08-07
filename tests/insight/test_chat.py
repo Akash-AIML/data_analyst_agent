@@ -6,8 +6,9 @@ import pytest
 
 from agents.insight import chat
 from agents.insight.insight_node import build_insight_node
-from agents.insight.tests import fixtures
-from agents.insight.tests.fake_llm import FakeChatModel
+from tests.insight import fixtures
+from tests.insight.fake_llm import FakeChatModel
+
 
 
 @pytest.fixture(scope="module")

@@ -9,7 +9,8 @@ from agents.insight.validation import (
     norm_key,
     validate_results,
 )
-from agents.insight.tests import fixtures
+from tests.insight import fixtures
+
 
 
 def test_healthy_results_pass():

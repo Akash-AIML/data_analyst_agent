@@ -7,8 +7,9 @@ import os
 import pytest
 
 from agents.insight.insight_node import build_insight_node
-from agents.insight.tests import fixtures
-from agents.insight.tests.fake_llm import FakeChatModel
+from tests.insight import fixtures
+from tests.insight.fake_llm import FakeChatModel, RECOMMENDATIONS_JSON as _r
+
 
 
 @pytest.fixture()
@@ -48,7 +49,8 @@ def test_insights_with_unverifiable_values_are_dropped(node, tmp_path):
             if "Derive 3-5 actionable" in prompt:
                 payload = fixtures.RECOMMENDATIONS_JSON if hasattr(fixtures, "RECOMMENDATIONS_JSON") else None
                 if payload is None:
-                    from agents.insight.tests.fake_llm import RECOMMENDATIONS_JSON as _r
+                    from tests.insight.fake_llm import RECOMMENDATIONS_JSON as _r
+
                     payload = _r
             elif "Audit these insights" in prompt:
                 payload = {"contradictions": []}

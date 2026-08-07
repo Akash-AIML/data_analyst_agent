@@ -1,5 +1,6 @@
-"""Canonical shared state package. Re-exports the AgentState contract."""
+"""Canonical shared state package. Re-exports the AgentState contract, StateContract, and build_state."""
 
-from state.graph_state import AgentState  # noqa: F401
+from state.graph_state import AgentState, StateContract, build_state  # noqa: F401
 
-__all__ = ["AgentState"]
+__all__ = ["AgentState", "StateContract", "build_state"]
+

@@ -15,7 +15,8 @@ import pytest
 # Ensure project root is on the path when running directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from state.graph_state import AgentState
+from state import AgentState
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +46,8 @@ class TestFileValidation:
     """These tests exercise early-exit logic and require no API key."""
 
     def test_missing_file_returns_failed(self):
-        from agents.profiler_agent import profiler_node
+        from agents.profiler.agent import profiler_node
+
         state = _make_state("data/non_existent_file_xyz.csv")
         result = profiler_node(state)
         assert result["status"] == "failed"
@@ -58,7 +60,8 @@ class TestFileValidation:
             f.write("col1,col2\n1,2\n")
             tmp_path = f.name
         try:
-            from agents.profiler_agent import profiler_node
+            from agents.profiler.agent import profiler_node
+
             state = _make_state(tmp_path)
             result = profiler_node(state)
             assert result["status"] == "failed"
@@ -72,7 +75,8 @@ class TestFileValidation:
             f.write("")   # completely empty
             tmp_path = f.name
         try:
-            from agents.profiler_agent import profiler_node
+            from agents.profiler.agent import profiler_node
+
             state = _make_state(tmp_path)
             result = profiler_node(state)
             assert result["status"] == "failed"
@@ -80,21 +84,24 @@ class TestFileValidation:
             os.unlink(tmp_path)
 
     def test_empty_csv_path_returns_failed(self):
-        from agents.profiler_agent import profiler_node
+        from agents.profiler.agent import profiler_node
+
         state = _make_state("")
         result = profiler_node(state)
         assert result["status"] == "failed"
         assert any("empty" in e.lower() or "missing" in e.lower() for e in result["error_log"])
 
     def test_error_log_is_populated_on_failure(self):
-        from agents.profiler_agent import profiler_node
+        from agents.profiler.agent import profiler_node
+
         state = _make_state("totally_wrong_path.csv")
         result = profiler_node(state)
         assert len(result["error_log"]) > 0
 
     def test_no_exception_escapes(self):
         """Node must never raise; all errors go to error_log."""
-        from agents.profiler_agent import profiler_node
+        from agents.profiler.agent import profiler_node
+
         try:
             state = _make_state("does/not/exist.csv")
             profiler_node(state)
@@ -117,7 +124,8 @@ class TestIntegration:
     """Full end-to-end tests that call the real LLM."""
 
     def test_normal_csv_completes(self):
-        from agents.profiler_agent import profiler_node
+        from agents.profiler.agent import profiler_node
+
         state = _make_state("data/sample_sales.csv")
         result = profiler_node(state)
         assert result["status"] == "completed", f"Errors: {result['error_log']}"
@@ -131,7 +139,8 @@ class TestIntegration:
         assert isinstance(profile["descriptive_stats"], dict)
 
     def test_report_file_exists_after_run(self):
-        from agents.profiler_agent import profiler_node
+        from agents.profiler.agent import profiler_node
+
         state = _make_state("data/sample_sales.csv")
         result = profiler_node(state)
         assert result["status"] == "completed"
@@ -140,7 +149,8 @@ class TestIntegration:
 
     def test_id_columns_not_in_numeric(self):
         """Order_ID and Customer_ID must NOT appear in numeric_columns."""
-        from agents.profiler_agent import profiler_node
+        from agents.profiler.agent import profiler_node
+
         state = _make_state("data/sample_sales.csv")
         result = profiler_node(state)
         assert result["status"] == "completed"
@@ -149,7 +159,8 @@ class TestIntegration:
         assert "Customer_ID" not in numeric
 
     def test_missing_values_is_dict(self):
-        from agents.profiler_agent import profiler_node
+        from agents.profiler.agent import profiler_node
+
         state = _make_state("data/sample_sales.csv")
         result = profiler_node(state)
         assert result["status"] == "completed"
@@ -174,7 +185,8 @@ class TestIntegration:
             writer.writerows(rows)
             tmp_path = f.name
         try:
-            from agents.profiler_agent import profiler_node
+            from agents.profiler.agent import profiler_node
+
             state = _make_state(tmp_path)
             result = profiler_node(state)
             assert result["status"] == "completed"

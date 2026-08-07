@@ -6,15 +6,16 @@ import json
 from dotenv import load_dotenv
 load_dotenv()
 from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from state.graph_state import AgentState
-from agents.analysis_prompts import (
+from state import AgentState
+
+from agents.analysis.prompts import (
     PLANNER_SYSTEM_PROMPT,
     CODE_GENERATION_PROMPT,
     ERROR_FIX_PROMPT,
     REFLECTION_PROMPT
 )
+
 from tools.python_executor import execute_code
 
 # LLM Configuration: Use Groq by default, fallback to Gemini natively for local tests

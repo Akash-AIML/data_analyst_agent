@@ -18,8 +18,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from dotenv import load_dotenv
 
-from state.graph_state import AgentState
-from agents.profiler_agent import profiler_node
+from state import AgentState
+from agents.profiler.agent import profiler_node
+
 
 # ---------------------------------------------------------------------------
 # Setup

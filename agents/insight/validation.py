@@ -114,9 +114,56 @@ def _normalize_results(analysis_results) -> List[Dict[str, Any]]:
             entry.setdefault("task_id", name)
             entry.setdefault("kind", "generic")
             entry.setdefault("status", "completed")
+
+            # Extract numeric key-value pairs from stdout if stats is missing/empty
+            if not entry.get("stats") and entry.get("stdout"):
+                extracted: Dict[str, float] = {}
+                for line in entry["stdout"].splitlines():
+                    for sep in (":", "="):
+                        if sep in line:
+                            parts = line.split(sep, 1)
+                            k = parts[0].strip()
+                            v = parts[1].strip()
+                            tokens = v.split()
+                            if tokens:
+                                try:
+                                    val = float(tokens[0].replace(",", ""))
+                                    if math.isfinite(val):
+                                        extracted[k] = val
+                                except ValueError:
+                                    pass
+                if extracted:
+                    entry["stats"] = extracted
             out.append(entry)
         return out
-    return list(results)
+
+    out_list: List[Dict[str, Any]] = []
+    for item in results:
+        if isinstance(item, dict):
+            entry = dict(item)
+            if not entry.get("stats") and entry.get("stdout"):
+                extracted = {}
+                for line in entry["stdout"].splitlines():
+                    for sep in (":", "="):
+                        if sep in line:
+                            parts = line.split(sep, 1)
+                            k = parts[0].strip()
+                            v = parts[1].strip()
+                            tokens = v.split()
+                            if tokens:
+                                try:
+                                    val = float(tokens[0].replace(",", ""))
+                                    if math.isfinite(val):
+                                        extracted[k] = val
+                                except ValueError:
+                                    pass
+                if extracted:
+                    entry["stats"] = extracted
+            out_list.append(entry)
+        else:
+            out_list.append(item)
+    return out_list
+
 
 
 # ---------------------------------------------------------------------------

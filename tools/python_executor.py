@@ -2,6 +2,7 @@
 
 import subprocess
 import os
+import sys
 import uuid
 import tempfile
 
@@ -64,9 +65,9 @@ def execute_code(code: str, csv_path: str) -> dict:
         before_files = {os.path.abspath(os.path.join(analysis_dir, f)) for f in os.listdir(analysis_dir)}
     
     try:
-        # Execute in subprocess
+        # Execute in subprocess (reuse the current interpreter so deps resolve)
         result = subprocess.run(
-            ['python', script_path],
+            [sys.executable, script_path],
             capture_output=True,
             text=True,
             timeout=EXECUTION_TIMEOUT,

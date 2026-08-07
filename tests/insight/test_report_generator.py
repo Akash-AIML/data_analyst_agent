@@ -7,7 +7,8 @@ import os
 import pytest
 
 from agents.insight import report_generator
-from agents.insight.tests import fixtures
+from tests.insight import fixtures
+
 
 
 @pytest.fixture(scope="module")
