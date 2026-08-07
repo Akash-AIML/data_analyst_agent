@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<style>
+  :root {
+    --bg: #ffffff; --ink: #111827; --muted: #6b7280;
+    --accent: #4f46e5; --ok: #059669; --warn: #d97706; --fail: #dc2626;
+    --border: #e5e7eb; --card: #f9fafb;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color: var(--ink); margin: 0; line-height: 1.5; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+  header.hero { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px;
+           font-size: 12px; font-weight: 600; color: #fff; }
+  .badge.ok { background: var(--ok); } .badge.degraded { background: var(--warn); }
+  .badge.failed { background: var(--fail); }
+  h2 { font-size: 18px; margin: 28px 0 12px; }
+  section.card { background: var(--card); border: 1px solid var(--border);
+                 border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .insight { margin-bottom: 14px; }
+  .insight:last-child { margin-bottom: 0; }
+  .insight .t { font-weight: 600; }
+  .insight .ev { color: var(--accent); font-family: ui-monospace, monospace; font-size: 13px; }
+  ul.recs { padding-left: 20px; }
+  ul.recs li { margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 14px; }
+  figure { margin: 0; background: #fff; border: 1px solid var(--border);
+           border-radius: 8px; overflow: hidden; }
+  figure img { width: 100%; display: block; }
+  figcaption { padding: 8px 10px; font-size: 12px; color: var(--muted);
+               border-top: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  .check-ok { color: var(--ok); } .check-fail { color: var(--fail); }
+  .note { border-left: 3px solid var(--warn); background: #fffbeb;
+          padding: 10px 14px; border-radius: 4px; font-size: 14px; }
+  .err { border-left: 3px solid var(--fail); background: #fef2f2;
+          padding: 10px 14px; border-radius: 4px; font-size: 13px; }
+  footer { margin-top: 32px; color: var(--muted); font-size: 12px;
+           border-top: 1px solid var(--border); padding-top: 12px; }
+  .empty { color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>{{ title }}</h1>
+  <div class="sub">
+    Dataset: <code>{{ csv_path }}</code>
+    &nbsp;·&nbsp; rows: {{ profile.rows if profile else 'n/a' }}
+    &nbsp;·&nbsp; cols: {{ profile.columns_count if profile else 'n/a' }}
+    &nbsp;·&nbsp; generated {{ generated_at }}
+  </div>
+  <div style="margin-top:8px;">
+    <span class="badge {{ report_status }}">{{ report_status.upper() }}</span>
+    <span class="sub" style="margin-left:8px;">pipeline status: {{ status }}</span>
+  </div>
+</header>
+
+{% if report_status == 'degraded' or report_status == 'failed' %}
+<section class="err">
+  <strong>Degraded report.</strong> The analysis pipeline did not complete. See the
+  error and execution logs below. Only partial output may be available.
+</section>
+{% endif %}
+
+{% if insights %}
+<h2>Executive Summary</h2>
+{% for ins in insights %}
+<section class="card insight">
+  <div class="t">{{ ins.id }}. {{ ins.title }}</div>
+  <div>{{ ins.body }}</div>
+  <div class="ev">evidence: {{ ins.evidence }}</div>
+</section>
+{% endfor %}
+{% endif %}
+
+{% if contradictions %}
+<h2>Noted Contradictions</h2>
+{% for c in contradictions %}
+<section class="note">
+  Insight #{{ c.insight_a_id }} vs #{{ c.insight_b_id }}: {{ c.reason }}
+</section>
+{% endfor %}
+{% endif %}
+
+{% if recommendations %}
+<h2>Recommendations</h2>
+<section class="card">
+  <ul class="recs">
+  {% for r in recommendations %}
+    <li><strong>{{ r.title }}</strong> — {{ r.body }}</li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if charts %}
+<h2>Charts</h2>
+<div class="grid">
+  {% for chart in charts %}
+  <figure>
+    <img src="data:{{ chart.format }};base64,{{ chart.data_uri }}" alt="{{ chart.caption }}">
+    <figcaption>{{ chart.caption }}</figcaption>
+  </figure>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if validation %}
+<h2>Validation Report</h2>
+<section class="card">
+  <table>
+    <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for check in validation.checks %}
+      <tr>
+        <td>{{ check.name }}</td>
+        <td class="{% if check.ok %}check-ok{% else %}check-fail{% endif %}">
+          {{ 'PASS' if check.ok else 'FAIL' }}</td>
+        <td>{{ check.detail }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if validation.warnings %}
+    <p><strong>Warnings</strong></p>
+    <ul>{% for w in validation.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if validation.errors %}
+    <p><strong>Errors</strong></p>
+    <ul>{% for e in validation.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if profile and profile.columns %}
+<h2>Profile Snapshot</h2>
+<section class="card">
+  <table>
+    <thead><tr><th>Column</th><th>Type</th><th>Unique</th><th>Missing</th></tr></thead>
+    <tbody>
+    {% for name, meta in profile.columns.items() %}
+      <tr><td>{{ name }}</td><td>{{ meta.get('type') }}</td>
+          <td>{{ meta.get('unique', 'n/a') }}</td><td>{{ meta.get('missing', 'n/a') }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if execution_log %}
+<h2>Execution Log</h2>
+<section class="card">
+  <table>
+    <thead><tr><th>Task</th><th>Message</th></tr></thead>
+    <tbody>
+    {% for e in execution_log %}
+      <tr><td>{{ e.get('task') }}</td><td>{{ e.get('msg') }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if error_log %}
+<h2>Error Log</h2>
+{% for e in error_log %}<section class="err">{{ e }}</section>{% endfor %}
+{% endif %}
+
+<footer>
+  Generated by the AI Data Analyst — Member 3 (Insight &amp; Report Agent).
+  {% if pdf_generated %}PDF render: success.{% endif %}
+</footer>
+
+</div>
+</body>
+</html>
