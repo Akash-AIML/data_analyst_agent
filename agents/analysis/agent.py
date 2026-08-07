@@ -23,18 +23,40 @@ from tools.python_executor import execute_code
 # LLM Configuration: Check OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY from .env
 def _build_analysis_llm():
     load_dotenv(override=True)
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    groq_llm = None
+    if groq_key:
+        try:
+            groq_llm = ChatGroq(
+                model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                groq_api_key=groq_key,
+                temperature=0.1,
+            )
+        except Exception:
+            pass
+
     openai_key = os.getenv("OPENAI_API_KEY", "")
     if openai_key:
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         model = os.getenv("MODEL", "gpt-4.1-nano")
-        return ChatOpenAI(model=model, api_key=openai_key, base_url=base_url, temperature=0.1)
-    elif os.getenv("GROQ_API_KEY"):
-        return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
+        primary_llm = ChatOpenAI(
+            model=model,
+            api_key=openai_key,
+            base_url=base_url,
+            temperature=0.1,
+            max_retries=1,
+        )
+        if groq_llm:
+            return primary_llm.with_fallbacks([groq_llm])
+        return primary_llm
+    elif groq_llm:
+        return groq_llm
     elif os.getenv("GEMINI_API_KEY"):
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
     else:
         return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
+
 
 llm = _build_analysis_llm()
 
