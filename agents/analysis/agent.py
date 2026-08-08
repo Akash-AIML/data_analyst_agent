@@ -159,6 +159,8 @@ def executor_node(state: AgentState) -> AgentState:
     
     if not pending_task:
         print("[EXECUTOR] No pending tasks to execute")
+        if state.get("execution_log") is None:
+            state["execution_log"] = []
         return state
     
     task_id = pending_task["task_id"]

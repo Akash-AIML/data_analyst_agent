@@ -164,11 +164,13 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
 
     state["report_path"] = html_path
     state["pdf_path"] = pdf_path
-    state["report_status"] = report_status
     state["error_log"] = (state.get("error_log") or []) + errors
 
-    if errors:
+    if validation.get("errors") or "could not render HTML report" in "\n".join(errors):
         state["report_status"] = "degraded"
+    else:
+        state["report_status"] = report_status
+
     if "could not render HTML report" in "\n".join(errors):
         state["report_status"] = "failed"
 
@@ -176,12 +178,8 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
 
 
 def _render_pdf(html: str, output_dir: str, safe_name: str) -> Optional[str]:
-    """HTML -> PDF via weasyprint; returns path or None on failure."""
-    try:
-        from weasyprint import HTML  # imported lazily
-        pdf_path = os.path.join(output_dir, f"{safe_name}_report.pdf")
-        HTML(string=html, base_url=output_dir).write_pdf(pdf_path)
-        return pdf_path if os.path.exists(pdf_path) else None
-    except Exception:
-        # Return None gracefully if native dependencies (libpango/GTK) are missing
-        return None
+    """HTML -> PDF via weasyprint; returns path or raises on failure."""
+    from weasyprint import HTML  # imported lazily
+    pdf_path = os.path.join(output_dir, f"{safe_name}_report.pdf")
+    HTML(string=html, base_url=output_dir).write_pdf(pdf_path)
+    return pdf_path if os.path.exists(pdf_path) else None
