@@ -78,6 +78,10 @@ def build_context(state: Dict[str, Any]) -> str:
             "datetime_columns": profile.get("datetime_columns"),
         }),
         ("PROFILE_COLUMNS", cols_val if isinstance(cols_val, dict) else {}),
+        ("MISSING_VALUES", profile.get("missing_values") or {}),
+        ("DESCRIPTIVE_STATS", profile.get("descriptive_stats") or {}),
+
+        ("ANALYSIS_RESULTS", state.get("analysis_results") or []),
 
         ("VALIDATION", {
             "status": validation.get("status"),

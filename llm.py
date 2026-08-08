@@ -146,6 +146,7 @@ def _resolve_openai_base_url() -> str:
     if base.endswith("/chat/completions"):
         base = base[: -len("/chat/completions")]
     return base
+
 # ---------------------------------------------------------------------------
 # Fallback chat model
 # ---------------------------------------------------------------------------

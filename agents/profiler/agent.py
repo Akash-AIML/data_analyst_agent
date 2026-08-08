@@ -297,44 +297,49 @@ def profiler_node(state: AgentState) -> AgentState:
 
     # Compute descriptive_stats directly from pandas — always reliable, no LLM needed
     computed_stats = _compute_descriptive_stats(df)
-
     user_prompt = PROFILER_USER_PROMPT_TEMPLATE.format(**info, report_path=report_path)
 
     # ------------------------------------------------------------------
-    # 5. LLM call with structured output (with minimal-prompt retry + pandas fallback)
+    # 5. LLM-optional structured classification (pandas-only by default)
+    #    LLM_PROFILER=1 opts back into the LLM classification pass.
+    #    Either way, descriptive_stats is always overwritten from pandas.
     # ------------------------------------------------------------------
-    logger.info("Calling LLM (model=%s) for structured profile...", os.getenv("MODEL", "gpt-4.1-nano"))
     profile_dict: dict | None = None
+    if os.getenv("LLM_PROFILER", "0") != "1":
+        logger.info("Profiler using deterministic pandas classification (LLM_PROFILER not set).")
+        profile_dict = _build_profile_from_pandas(df, csv_path)
+    else:
+        logger.info("Calling LLM (model=%s) for structured profile...", os.getenv("MODEL", "gpt-4.1-nano"))
 
-    for attempt, prompt in enumerate([user_prompt, _build_minimal_prompt(df, csv_path, report_path)], start=1):
-        try:
-            llm = build_chat_model(task="PROFILER", temperature=0)
-            profile_obj = structured_invoke(
-                task="PROFILER",
-                messages=[
-                    {"role": "system", "content": PROFILER_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                schema=ProfileOutput,
-                temperature=0,
-                chat=llm,
-                state=state,
-            )
-            if profile_obj is None:
-                raise RuntimeError("structured_invoke returned None")
-            profile_dict = profile_obj.model_dump()
-            logger.info("LLM returned a valid ProfileOutput (attempt %d).", attempt)
-            break
-        except EnvironmentError as env_err:
-            state["error_log"].append(str(env_err))
-            state["status"] = "failed"
-            return state
-        except Exception as exc:
-            logger.warning("LLM attempt %d failed: %s", attempt, exc)
-            if attempt == 2:
-                # Both LLM attempts failed — fall back to pure pandas profiling
-                logger.warning("Both LLM attempts failed. Using pandas-only fallback.")
-                profile_dict = _build_profile_from_pandas(df, csv_path)
+        for attempt, prompt in enumerate([user_prompt, _build_minimal_prompt(df, csv_path, report_path)], start=1):
+            try:
+                llm = build_chat_model(task="PROFILER", temperature=0)
+                profile_obj = structured_invoke(
+                    task="PROFILER",
+                    messages=[
+                        {"role": "system", "content": PROFILER_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    schema=ProfileOutput,
+                    temperature=0,
+                    chat=llm,
+                    state=state,
+                )
+                if profile_obj is None:
+                    raise RuntimeError("structured_invoke returned None")
+                profile_dict = profile_obj.model_dump()
+                logger.info("LLM returned a valid ProfileOutput (attempt %d).", attempt)
+                break
+            except EnvironmentError as env_err:
+                state["error_log"].append(str(env_err))
+                state["status"] = "failed"
+                return state
+            except Exception as exc:
+                logger.warning("LLM attempt %d failed: %s", attempt, exc)
+                if attempt == 2:
+                    # Both LLM attempts failed — fall back to pure pandas profiling
+                    logger.warning("Both LLM attempts failed. Using pandas-only fallback.")
+                    profile_dict = _build_profile_from_pandas(df, csv_path)
 
     # Always overwrite descriptive_stats with the pandas-computed version.
     # This guarantees it is never missing or wrong, regardless of LLM context limits.

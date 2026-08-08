@@ -6,16 +6,18 @@ from tests.insight.fake_llm import FakeChatModel
 
 
 
-from tools.llm_factory import get_ordered_llm
-
-
 def _get_chat_model():
-    """Instantiate appropriate chat model using strict Groq -> Gemini -> OpenAI fallback."""
-    try:
-        return get_ordered_llm(temperature=0.1)
-    except Exception:
-        return FakeChatModel()
+    """Use the central LLM factory (resolver + failover + pacing + budget).
 
+    Routes through ``llm.build_chat_model`` so the NVIDIA NIM ``/chat/completions``
+    base_url is normalized, primary 429s are retried, and Groq is the fallback.
+    """
+    try:
+        from llm import build_chat_model
+        return build_chat_model(task="CHAT", temperature=0.1)
+    except Exception:
+        from tests.insight.fake_llm import FakeChatModel
+        return FakeChatModel()
 
 
 

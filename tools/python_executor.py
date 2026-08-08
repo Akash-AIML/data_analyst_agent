@@ -13,7 +13,6 @@ MAX_OUTPUT_BYTES = 100_000
 # Hard resource limits for the child process (POSIX only).
 _CPU_LIMIT_S = int(os.getenv("EXEC_CPU_LIMIT_S", str(EXECUTION_TIMEOUT)))  # wall CPU
 _MEM_LIMIT_MB = int(os.getenv("EXEC_MEM_LIMIT_MB", "1536"))  # soft address space
-_MAX_TASKS = int(os.getenv("MAX_PLAN_TASKS", "8"))
 
 SANDBOX_TEMPLATE = """
 import pandas as pd
@@ -150,7 +149,7 @@ def execute_code(code: str, csv_path: str) -> dict:
     # Restricted environment for the child: strip ambient secrets etc.
     clean_env = {
         k: v for k, v in os.environ.items()
-        if not k.startswith(("OPENAI_", "GROQ_", "GEMINI_", "GOOGLE_"))
+        if not k.startswith(("OPENAI_", "GROQ_", "GEMINI_", "GOOGLE_", "NVIDIA_", "NVAPI", "NIM_"))
     }
     clean_env.setdefault("TMPDIR", tempfile.gettempdir())
     clean_env.setdefault("PYTHONNOUSERSITE", "1")
