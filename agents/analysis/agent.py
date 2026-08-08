@@ -58,46 +58,16 @@ class ResilientFallbackModel(BaseChatModel):
         return "resilient_fallback"
 
 
+from tools.llm_factory import get_ordered_llm
+
+
 def _build_analysis_llm():
-    """Instantiate ChatOpenAI with Groq fallback."""
-    load_dotenv(override=True)
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    groq_llm = None
-    if groq_key:
-        try:
-            groq_llm = ChatGroq(
-                model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-                groq_api_key=groq_key,
-                temperature=0.1,
-            )
-        except Exception:
-            pass
-
-    openai_key = os.getenv("OPENAI_API_KEY", "")
-    if openai_key:
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        model = os.getenv("MODEL", "gpt-4.1-nano")
-        primary_llm = ChatOpenAI(
-            model=model,
-            api_key=openai_key,
-            base_url=base_url,
-            temperature=0.1,
-            max_retries=0,
-        )
-
-        if groq_llm:
-            return ResilientFallbackModel(primary=primary_llm, fallback=groq_llm)
-        return primary_llm
-    elif groq_llm:
-        return groq_llm
-    elif os.getenv("GEMINI_API_KEY"):
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
-    else:
-        return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
+    """Instantiate ordered LLM chain: Groq -> Gemini -> OpenAI."""
+    return get_ordered_llm(temperature=0.1)
 
 
 llm = _build_analysis_llm()
+
 
 
 MAX_RETRIES = 3
@@ -195,8 +165,10 @@ def executor_node(state: AgentState) -> AgentState:
     task_name = pending_task["task_name"]
     task_desc = pending_task["description"]
     attempt = pending_task["attempts"] + 1
+    pending_task["attempts"] = attempt
     
     print(f"[EXECUTOR] Executing task {task_id}: {task_name} (attempt {attempt}/{MAX_RETRIES})")
+
     
     # Generate code
     numeric_cols = profile.get("numeric_columns", [])

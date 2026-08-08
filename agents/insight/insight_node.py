@@ -30,12 +30,16 @@ def _log_error(state: Dict[str, Any], message: str) -> None:
 
 
 def build_insight_node(
-    llm: Any,
+    llm: Any = None,
     output_dir: str = DEFAULT_OUTPUT_DIR,
 ) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
     """Create an ``insight_node`` bound to a concrete chat model."""
 
     def insight_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        nonlocal llm
+        if llm is None:
+            llm = prompts.get_chat_model()
+
         state = dict(state)
         state.setdefault("error_log", [])
         state.setdefault("thinking_log", [])

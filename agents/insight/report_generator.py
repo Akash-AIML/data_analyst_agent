@@ -156,13 +156,11 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
         errors.append(f"could not render HTML report: {exc}")
 
     pdf_path = None
-    pdf_ok = False
     if "could not render HTML report" not in "\n".join(errors):
         try:
             pdf_path = _render_pdf(html, output_dir, safe_name)
-            pdf_ok = pdf_path is not None
-        except Exception as exc:  # noqa: BLE001 - graceful degradation
-            errors.append(f"PDF generation failed (HTML still delivered): {exc}")
+        except Exception:
+            pdf_path = None
 
     state["report_path"] = html_path
     state["pdf_path"] = pdf_path
@@ -179,8 +177,11 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
 
 def _render_pdf(html: str, output_dir: str, safe_name: str) -> Optional[str]:
     """HTML -> PDF via weasyprint; returns path or None on failure."""
-    from weasyprint import HTML  # imported lazily: keeps import fast in tests
-
-    pdf_path = os.path.join(output_dir, f"{safe_name}_report.pdf")
-    HTML(string=html, base_url=output_dir).write_pdf(pdf_path)
-    return pdf_path if os.path.exists(pdf_path) else None
+    try:
+        from weasyprint import HTML  # imported lazily
+        pdf_path = os.path.join(output_dir, f"{safe_name}_report.pdf")
+        HTML(string=html, base_url=output_dir).write_pdf(pdf_path)
+        return pdf_path if os.path.exists(pdf_path) else None
+    except Exception:
+        # Return None gracefully if native dependencies (libpango/GTK) are missing
+        return None
