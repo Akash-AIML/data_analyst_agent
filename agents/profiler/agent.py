@@ -11,15 +11,12 @@ from typing import Dict, Any
 
 import pandas as pd
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from langchain_core.language_models.chat_models import BaseChatModel
-import time
-
 
 from state import AgentState
 from tools.profiling_tool import ProfilingTool
 from agents.profiler.prompts import PROFILER_SYSTEM_PROMPT, PROFILER_USER_PROMPT_TEMPLATE
 from agents.profiler.schemas import ProfileOutput
+from llm import build_chat_model, structured_invoke
 
 
 # ---------------------------------------------------------------------------
@@ -32,56 +29,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
 )
-
-# ---------------------------------------------------------------------------
-# LLM — fully configured from .env
-# ---------------------------------------------------------------------------
-class ResilientFallbackModel(BaseChatModel):
-    primary: Any
-    fallback: Any
-
-    def _generate(self, messages: Any, stop: Any = None, **kwargs: Any) -> Any:
-        try:
-            return self.primary._generate(messages, stop=stop, **kwargs)
-        except Exception:
-            for attempt in range(1, 4):
-                try:
-                    return self.fallback._generate(messages, stop=stop, **kwargs)
-                except Exception as fb_err:
-                    if attempt < 3:
-                        time.sleep(3.0)
-                    else:
-                        raise fb_err
-
-    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
-        try:
-            return self.primary.with_structured_output(schema, **kwargs)
-        except Exception:
-            for attempt in range(1, 4):
-                try:
-                    return self.fallback.with_structured_output(schema, **kwargs)
-                except Exception as fb_err:
-                    if attempt < 3:
-                        time.sleep(3.0)
-                    else:
-                        raise fb_err
-
-    @property
-    def _llm_type(self) -> str:
-        return "resilient_fallback"
-
-
-
-from tools.llm_factory import get_ordered_llm
-
-
-def _build_llm():
-    """Instantiate ordered LLM chain: Groq -> Gemini -> OpenAI."""
-    return get_ordered_llm(temperature=0)
-
-
-
-
 
 
 
@@ -267,7 +214,7 @@ def profiler_node(state: AgentState) -> AgentState:
     Steps:
       1. Validate input file (existence, extension)
       2. Read CSV with encoding fallback
-      3. Run ProfilingTool → ydata-profiling HTML report
+      3. Run ProfilingTool → sweetviz HTML report
       4. Build LLM prompt from DataFrame summaries
       5. Call LLM with structured output (ProfileOutput)
       6. Self-validate the profile
@@ -361,14 +308,20 @@ def profiler_node(state: AgentState) -> AgentState:
 
     for attempt, prompt in enumerate([user_prompt, _build_minimal_prompt(df, csv_path, report_path)], start=1):
         try:
-            llm = _build_llm()
-            structured_llm = llm.with_structured_output(ProfileOutput, method="function_calling")
-            profile_obj: ProfileOutput = structured_llm.invoke(
-                [
+            llm = build_chat_model(task="PROFILER", temperature=0)
+            profile_obj = structured_invoke(
+                task="PROFILER",
+                messages=[
                     {"role": "system", "content": PROFILER_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
-                ]
+                ],
+                schema=ProfileOutput,
+                temperature=0,
+                chat=llm,
+                state=state,
             )
+            if profile_obj is None:
+                raise RuntimeError("structured_invoke returned None")
             profile_dict = profile_obj.model_dump()
             logger.info("LLM returned a valid ProfileOutput (attempt %d).", attempt)
             break

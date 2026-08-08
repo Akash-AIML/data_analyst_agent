@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List
 from agents.insight import prompts
 from agents.insight import report_generator
 from agents.insight.validation import extract_evidence, validate_results
+from agents.insight.verify import verify_by_recompute
 
 DEFAULT_OUTPUT_DIR = "output/reports"
 
@@ -118,14 +119,27 @@ def _generate_insights(llm: Any, evidence: List[Dict[str, Any]],
         _log_error(state, f"insight generation failed: {exc}")
         return []
 
+    # (1) evidence membership gate - drop anything not backed by verified stats
     verified = prompts.verify_insights(raw, evidence)
-    deduped = prompts.dedupe_by_metric(verified)
+    # (2) verify-by-recompute gate - hard-fail on numbers the CSV contradicts
+    recompute_kept, recompute_rejects = verify_by_recompute(
+        verified,
+        state.get("csv_path", ""),
+        profile=state.get("profile"),
+        tolerance=0.03,
+    )
+    deduped = prompts.dedupe_by_metric(recompute_kept)
     dropped = len(raw) - len(deduped)
     if dropped:
         _log_error(
             state,
             f"dropped {dropped} unverifiable/duplicate insight(s)",
         )
+        if state.get("report_status") == "ok":
+            state["report_status"] = "degraded"
+    if recompute_rejects:
+        for why in recompute_rejects:
+            _log_error(state, f"recompute rejected: {why}")
         if state.get("report_status") == "ok":
             state["report_status"] = "degraded"
     if len(deduped) < 5:

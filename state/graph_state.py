@@ -47,6 +47,7 @@ class AgentState(TypedDict, total=False):
     # --- Shared ------------------------------------------------------
     error_log: List[str]
     thinking_log: List[str]
+    llm_calls: List[Dict[str, Any]]
     status: str  # "running" | "in_progress" | "completed" | "failed"
 
 
@@ -79,6 +80,7 @@ class StateContract(BaseModel):
     report_status: str = "ok"
     error_log: List[str] = Field(default_factory=list)
     thinking_log: List[str] = Field(default_factory=list)
+    llm_calls: List[Dict[str, Any]] = Field(default_factory=list)
     status: str = "in_progress"
 
     @field_validator(

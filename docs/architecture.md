@@ -15,7 +15,7 @@ The **AI Data Analyst** system is built on a modular, state-driven multi-agent a
                            v
                +-----------------------+
                |    Profiler Agent     |
-               | (ydata-profiling +    |
+               | (sweetviz +        |
                |  pandas descriptive)  |
                +-----------+-----------+
                            |
@@ -63,7 +63,7 @@ All agents read from and write to a single, unified `AgentState` schema:
 ```text
 .
 ├── agents/
-│   ├── profiler/       # CSV ingestion & ydata-profiling HTML report
+│   ├── profiler/       # CSV ingestion & sweetviz HTML report
 │   ├── analysis/       # Code generation, python executor, reflection loop
 │   └── insight/        # Deterministic validation & HTML/PDF executive summary
 ├── api/                # FastAPI web backend

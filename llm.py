@@ -146,8 +146,6 @@ def _resolve_openai_base_url() -> str:
     if base.endswith("/chat/completions"):
         base = base[: -len("/chat/completions")]
     return base
-
-
 # ---------------------------------------------------------------------------
 # Fallback chat model
 # ---------------------------------------------------------------------------
@@ -644,6 +642,7 @@ def _schema_shape_hint(schema: type[BaseModel]) -> str:
                 out[fname] = "example"
         return out
     return json.dumps(_model_example(schema), indent=2, default=str)
+
 
 
 def _json_from_text(text: str) -> Any:

@@ -9,7 +9,7 @@ from tests.insight.fake_llm import FakeChatModel
 
 def test_create_pipeline_returns_runner():
     pipeline = create_pipeline(FakeChatModel())
-    assert callable(pipeline)
+    assert hasattr(pipeline, "invoke") and callable(pipeline.invoke)
 
 
 def test_full_pipeline_with_fake_llm(tmp_path):
@@ -18,7 +18,7 @@ def test_full_pipeline_with_fake_llm(tmp_path):
         csv_path="data/sample_sales.csv",
         status="running",
     )
-    final_state = pipeline(state)
+    final_state = pipeline.invoke(state)
     assert "report_status" in final_state
     assert final_state["report_status"] in ("ok", "degraded", "failed")
 

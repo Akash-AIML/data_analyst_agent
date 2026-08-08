@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field
 
+from llm import structured_invoke as _structured_invoke
+
 
 # ---------------------------------------------------------------------------
 # Output schemas
@@ -133,161 +135,34 @@ def build_consistency_prompt(insights: List[Dict[str, Any]]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# LLM wiring
+# ---------------------------------------------------------------------------
+# LLM wiring (delegated to the central llm module)
 # ---------------------------------------------------------------------------
 
-class ResilientFallbackModel(BaseChatModel):
-    primary: Any
-    fallback: Any
-
-    def _generate(self, messages: Any, stop: Any = None, **kwargs: Any) -> Any:
-        try:
-            return self.primary._generate(messages, stop=stop, **kwargs)
-        except Exception:
-            for attempt in range(1, 4):
-                try:
-                    return self.fallback._generate(messages, stop=stop, **kwargs)
-                except Exception as fb_err:
-                    if attempt < 3:
-                        time.sleep(3.0)
-                    else:
-                        raise fb_err
-
-    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
-        try:
-            return self.primary.with_structured_output(schema, **kwargs)
-        except Exception:
-            for attempt in range(1, 4):
-                try:
-                    return self.fallback.with_structured_output(schema, **kwargs)
-                except Exception as fb_err:
-                    if attempt < 3:
-                        time.sleep(3.0)
-                    else:
-                        raise fb_err
-
-    @property
-    def _llm_type(self) -> str:
-        return "resilient_fallback"
-
-
-
-from tools.llm_factory import get_ordered_llm
-
-
 def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> BaseChatModel:
-    """Default chat model. Configured with automatic fallback across Groq, Gemini, and OpenAI."""
-    return get_ordered_llm(model=model, temperature=temperature)
-
-
-
-
+    """Default chat model. Configured with automatic fallback across OpenAI/Groq."""
+    from llm import build_chat_model
+    return build_chat_model(task="INSIGHT", temperature=temperature)
 
 
 def structured_invoke(chat: BaseChatModel, schema: type[BaseModel], prompt: str) -> BaseModel:
     """Invoke a chat model and parse the reply as ``schema``.
 
-    Preferred path: ``with_structured_output`` (tool calling on real OpenAI
-    models). Fallback: plain JSON-mode prompting + Pydantic validation, so
-    plain stubs and non-tool-calling models work too - and parse failures
-    surface as Pydantic errors instead of silent garbage.
+    Delegates to ``llm.structured_invoke`` which tries tool calling first and
+    falls back to a JSON-mode prompt so plain stubs (FakeChatLLM) and
+    non-tool-calling models work too. Parse failures surface as Pydantic errors.
     """
-    try:
-        llm = chat.with_structured_output(schema)
-        result = llm.invoke(prompt)
-        parsed = _coerce_result(result, schema)
-        if parsed is not None:
-            return parsed
-    except (NotImplementedError, AttributeError, Exception):
-        pass
-
-    return _json_invoke(chat, schema, prompt)
-
-
-def _coerce_result(result: Any, schema: type[BaseModel]) -> Optional[BaseModel]:
-    if isinstance(result, schema):
-        return result
-    if isinstance(result, BaseModel):  # e.g. wrapped by include_raw
-        data = result.model_dump()
-        if "parsed" in data:
-            return schema.model_validate(data["parsed"])
-        return None
-    if isinstance(result, dict):
-        return schema.model_validate(result)
-    if isinstance(result, str):
-        return schema.model_validate_json(result)
-    return None
-
-
-def _json_invoke(chat: BaseChatModel, schema: type[BaseModel], prompt: str) -> BaseModel:
-    json_prompt = (
-        prompt
-        + "\n\nRespond with ONLY a valid JSON object matching this schema:\n"
-        + json.dumps(schema.model_json_schema(), default=str)
+    return _central_structured_invoke(
+        task="INSIGHT",
+        messages=[{"role": "system", "content": prompt}],
+        schema=schema,
+        temperature=0.2,
+        chat=chat,
     )
-    reply = chat.invoke(json_prompt)
-    text = _extract_text(reply)
-
-    # 1. Direct JSON parse attempt
-    try:
-        data = json.loads(text)
-        if isinstance(data, list):
-            if schema == InsightsBatch:
-                return schema(insights=data)
-            elif schema == RecommendationsBatch:
-                return schema(recommendations=data)
-            elif schema == ConsistencyReport:
-                return schema(contradictions=data)
-        elif isinstance(data, dict):
-            return schema.model_validate(data)
-    except Exception:
-        pass
-
-    # 2. Substring extraction attempt
-    indices_start = [i for i in (text.find("{"), text.find("[")) if i != -1]
-    indices_end = [i for i in (text.rfind("}"), text.rfind("]")) if i != -1]
-    if indices_start and indices_end:
-        start_idx = min(indices_start)
-        end_idx = max(indices_end)
-        if end_idx > start_idx:
-            sub_text = text[start_idx : end_idx + 1]
-            try:
-                data = json.loads(sub_text)
-                if isinstance(data, list):
-                    if schema == InsightsBatch:
-                        return schema(insights=data)
-                    elif schema == RecommendationsBatch:
-                        return schema(recommendations=data)
-                    elif schema == ConsistencyReport:
-                        return schema(contradictions=data)
-                elif isinstance(data, dict):
-                    return schema.model_validate(data)
-            except Exception:
-                pass
-
-    return schema.model_validate_json(text)
 
 
-
-def _extract_text(reply: Any) -> str:
-    """Pull JSON text out of whatever the model returned (AIMessage/dict/str)."""
-    if isinstance(reply, str):
-        text = reply
-    elif hasattr(reply, "content"):
-        text = reply.content
-    elif isinstance(reply, dict):
-        text = reply.get("content") or ""
-        if not text and reply.get("tool_calls"):
-            text = reply["tool_calls"][0].get("args") or ""
-    else:
-        text = str(reply)
-
-    text = text.strip()
-    if text.startswith("```"):
-        first_nl = text.find("\n")
-        last = text.rfind("```")
-        text = text[first_nl + 1 : last].strip() if last > first_nl else text[first_nl + 1 :].strip()
-    return text
+# alias to keep signature/semantics readable
+_central_structured_invoke = _structured_invoke
 
 
 def generate_insights(

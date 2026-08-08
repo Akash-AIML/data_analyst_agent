@@ -58,7 +58,7 @@ def run_pipeline(csv_path: str) -> Dict[str, Any]:
     )
 
     logger.info("Starting pipeline execution for %s", csv_path)
-    final_state = pipeline(initial_state)
+    final_state = pipeline.invoke(initial_state)
     logger.info("Pipeline execution finished with report status: %s", final_state.get("report_status"))
     return final_state
 

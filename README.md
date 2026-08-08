@@ -4,6 +4,12 @@ An autonomous multi-agent data analysis platform built with **LangGraph**, **Pyd
 
 Given a CSV dataset, the system automatically performs exploratory data analysis (EDA), generates data profiling reports, plans and executes sandboxed Python code to compute stats and plot charts, validates quantitative evidence, compiles an executive HTML/PDF report, and provides a report-grounded conversational AI assistant.
 
+| Agent | Role | Code | Readme |
+|-------|------|------|--------|
+| **Member 1 — Profiler** | CSV → pandas + sweetviz HTML report + structured `profile` | `agents/profiler_agent.py`, `tools/`, `api/`, `ui/` | `agents/m1/README.md` |
+| **Member 2 — Analysis** | planner → executor (sandboxed code) → reflector → `analysis_results` | `agents/analysis_agent.py`, `tools/python_executor.py` | (see docstring) |
+| **Member 3 — Insight** | validates, writes insights/recommendations, compiles HTML+PDF report, report-grounded Streamlit chat | `agents/insight/` | `agents/insight/README_INSIGHT.md` |
+
 ---
 
 ## 📌 1. Project Overview

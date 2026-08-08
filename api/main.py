@@ -175,7 +175,7 @@ async def analyze(file: UploadFile = File(...)):
 @app.get("/report/{filename}", tags=["profiler"])
 def get_report(filename: str):
     """
-    Serve a generated ydata-profiling HTML report by filename.
+    Serve a generated sweetviz HTML report by filename.
     """
     # Sanitize — prevent directory traversal
     safe_filename = Path(filename).name

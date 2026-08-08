@@ -1,402 +1,328 @@
-# agents/analysis_agent.py
+# agents/analysis/agent.py
+"""Analysis Agent: planner -> executor -> reflector (LangGraph nodes).
 
-from typing import Dict, Any, List
-import os
+M2 contract (matches state/graph_state.py + agents/analysis/schemas.py):
+  * ``analysis_plan``        -> list of tasks: {task_id, task_name, description,
+                                column?, status, attempts, max_retries}
+  * ``analysis_results``     -> canonical LIST of result dicts
+       {task_id, title, kind, column?, status, stats}
+    where ``stats`` are the numeric values the executor captured via the
+    ``RESULT_JSON`` sandbox protocol - the exact numbers validation uses.
+  * ``execution_log``        -> one entry per attempt (task, code, outcome)
+  * ``generated_files``      -> list of image paths produced by tasks
+  * ``reflection_notes``     -> human-readable QA notes
+
+LLM wiring is centralized in ``llm.py`` (primary + Groq failover, usage logs).
+"""
+
+from __future__ import annotations
+
 import json
-import time
-from dotenv import load_dotenv
-load_dotenv(override=True)
-from langchain_openai import ChatOpenAI
-from langchain_groq import ChatGroq
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.prompts import ChatPromptTemplate
-from state import AgentState
+import logging
+from typing import Any, Dict, List
 
+from dotenv import load_dotenv
+
+from state import AgentState
+from llm import structured_invoke, plain_invoke
 
 from agents.analysis.prompts import (
     PLANNER_SYSTEM_PROMPT,
     CODE_GENERATION_PROMPT,
     ERROR_FIX_PROMPT,
-    REFLECTION_PROMPT
+    REFLECTION_PROMPT,
+)
+from agents.analysis.schemas import (
+    AnalysisPlan,
+    AnalysisReflection,
+    KIND_MAP,
 )
 
 from tools.python_executor import execute_code
 
-# LLM Configuration: Check OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY from .env
-class ResilientFallbackModel(BaseChatModel):
-    primary: Any
-    fallback: Any
+load_dotenv(override=True)
 
-    def _generate(self, messages: Any, stop: Any = None, **kwargs: Any) -> Any:
-        try:
-            return self.primary._generate(messages, stop=stop, **kwargs)
-        except Exception:
-            for attempt in range(1, 4):
-                try:
-                    return self.fallback._generate(messages, stop=stop, **kwargs)
-                except Exception as fb_err:
-                    if attempt < 3:
-                        time.sleep(3.0)
-                    else:
-                        raise fb_err
-
-    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
-        try:
-            return self.primary.with_structured_output(schema, **kwargs)
-        except Exception:
-            for attempt in range(1, 4):
-                try:
-                    return self.fallback.with_structured_output(schema, **kwargs)
-                except Exception as fb_err:
-                    if attempt < 3:
-                        time.sleep(3.0)
-                    else:
-                        raise fb_err
-
-    @property
-    def _llm_type(self) -> str:
-        return "resilient_fallback"
-
-
-from tools.llm_factory import get_ordered_llm
-
-
-def _build_analysis_llm():
-    """Instantiate ordered LLM chain: Groq -> Gemini -> OpenAI."""
-    return get_ordered_llm(temperature=0.1)
-
-
-llm = _build_analysis_llm()
-
+logger = logging.getLogger(__name__)
 
 
 MAX_RETRIES = 3
 
 
 def planner_node(state: AgentState) -> AgentState:
-    """Creates analysis plan based on dataset profile."""
-    
+    """Creates a structured analysis plan from the dataset profile."""
     profile = state.get("profile", {})
     if not profile:
-        if state.get("error_log") is None:
-            state["error_log"] = []
-        state["error_log"].append("Planner: No profile found in state")
+        state.setdefault("error_log", []).append("Planner: No profile found in state")
         state["status"] = "failed"
         return state
-    
-    # Build prompt
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", PLANNER_SYSTEM_PROMPT),
-        ("user", "Here is the dataset profile:\n{profile_json}\n\nCreate an analysis plan.")
-    ])
-    
-    # Call LLM
-    plan_text = ""
+
     try:
-        response = llm.invoke(
-            prompt.format_messages(profile_json=json.dumps(profile, indent=2))
+        parsed = structured_invoke(
+            task="PLANNER",
+            messages=[
+                {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
+                {"role": "user",
+                 "content": f"Here is the dataset profile:\n{json.dumps(profile, indent=2)}\n\nCreate an analysis plan."},
+            ],
+            schema=AnalysisPlan,
+            temperature=0.1,
+            state=state,
         )
-        
-        # Parse the JSON response
-        plan_text = response.content.strip()
-        
-        # Clean up — remove markdown code blocks if present
-        if plan_text.startswith("```"):
-            plan_text = plan_text.split("```")[1]
-            if plan_text.startswith("json"):
-                plan_text = plan_text[4:]
-        plan_text = plan_text.strip()
-        
-        analysis_plan = json.loads(plan_text)
-        
-        # Add tracking fields to each task
-        for task in analysis_plan:
-            task["status"] = "pending"
-            task["code"] = None
-            task["attempts"] = 0
-            task["max_retries"] = MAX_RETRIES
-        
+        analysis_plan = _materialize_tasks(parsed)
+
         state["analysis_plan"] = analysis_plan
-        state["analysis_results"] = {}
+        state["analysis_results"] = []
         state["execution_log"] = []
         state["generated_files"] = []
-        
-        print(f"[PLANNER] Created plan with {len(analysis_plan)} tasks")
+
+        logger.info("Planner created %d tasks", len(analysis_plan))
         for t in analysis_plan:
-            print(f"  - {t['task_id']}: {t['task_name']}")
-        
-    except json.JSONDecodeError as e:
-        if state.get("error_log") is None:
-            state["error_log"] = []
-        state["error_log"].append(f"Planner: Failed to parse LLM output as JSON: {e}")
-        state["error_log"].append(f"Raw output: {plan_text[:500]}")
+            logger.info("  - task %s: %s", t.get("task_id"), t.get("task_name"))
+    except Exception as e:  # noqa: BLE001
+        state.setdefault("error_log", []).append(f"Planner: Unexpected error: {e}")
         state["analysis_plan"] = []
         state["status"] = "failed"
-    except Exception as e:
-        if state.get("error_log") is None:
-            state["error_log"] = []
-        state["error_log"].append(f"Planner: Unexpected error: {e}")
-        state["analysis_plan"] = []
-        state["status"] = "failed"
-    
     return state
 
 
-def executor_node(state: AgentState) -> AgentState:
-    """Executes the next pending task in the analysis plan."""
-    
-    analysis_plan = state.get("analysis_plan") or []
+def _materialize_tasks(parsed: Any) -> List[Dict[str, Any]]:
+    """Turn planner output (AnalysisPlan | dict | list) into task dicts."""
+    tasks: List[Dict[str, Any]] = []
 
+    if parsed is None:
+        return tasks
+
+    if isinstance(parsed, AnalysisPlan):
+        raw = parsed.tasks
+        # Pydantic object model_dump OR plain dicts
+        for item in raw:
+            tasks.append(item if isinstance(item, dict) else item.model_dump())
+    elif isinstance(parsed, dict):
+        cand = parsed.get("tasks", [])
+        if isinstance(cand, list):
+            tasks = [t if isinstance(t, dict) else t.model_dump() for t in cand]
+        elif isinstance(parsed.get("task_name"), str):
+            tasks = [parsed]
+    elif isinstance(parsed, list):
+        tasks = [t if isinstance(t, dict) else t.model_dump() for t in parsed]
+
+    # Enforce the tracking fields the executor depends on.
+    for i, task in enumerate(tasks, start=1):
+        task.setdefault("task_id", i)
+        task.setdefault("task_name", task.get("task_name", f"task_{i}"))
+        task.setdefault("description", task.get("description", ""))
+        task.setdefault("column", None)
+        task["status"] = "pending"
+        task["code"] = None
+        task["attempts"] = 0
+        task["max_retries"] = MAX_RETRIES
+    return tasks
+
+
+def executor_node(state: AgentState) -> AgentState:
+    """Runs next pending task; writes the canonical ``analysis_results`` list."""
+    plan = state.get("analysis_plan") or []
     profile = state.get("profile", {})
     csv_path = state.get("csv_path", "")
-    
-    # Find first pending task
-    pending_task = None
-    for task in analysis_plan:
-        if task["status"] == "pending" and task["attempts"] < task["max_retries"]:
-            pending_task = task
-            break
-    
-    if not pending_task:
-        print("[EXECUTOR] No pending tasks to execute")
-        if state.get("execution_log") is None:
-            state["execution_log"] = []
+    pending = next(
+        (t for t in plan
+         if t.get("status") == "pending"
+         and t.get("attempts", 0) < t.get("max_retries", MAX_RETRIES)),
+        None,
+    )
+    if pending is None:
+        logger.info("No pending tasks to execute")
         return state
-    
-    task_id = pending_task["task_id"]
-    task_name = pending_task["task_name"]
-    task_desc = pending_task["description"]
-    attempt = pending_task["attempts"] + 1
-    pending_task["attempts"] = attempt
-    
-    print(f"[EXECUTOR] Executing task {task_id}: {task_name} (attempt {attempt}/{MAX_RETRIES})")
 
-    
-    # Generate code
+    attempt = int(pending.get("attempts", 0)) + 1
+    logger.info(
+        "Executing task %s: %s (attempt %d)",
+        pending.get("task_id"), pending.get("task_name"), attempt,
+    )
     numeric_cols = profile.get("numeric_columns", [])
     categorical_cols = profile.get("categorical_columns", [])
-    
-    # Use error-fix prompt if retrying, else use normal code generation
-    if attempt > 1 and pending_task.get("last_error"):
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", ERROR_FIX_PROMPT),
-            ("user", "Fix this code.")
-        ])
-        prompt_input = {
-            "original_code": pending_task.get("code", ""),
-            "error_message": pending_task.get("last_error", ""),
-            "stdout": pending_task.get("last_stdout", ""),
-            "numeric_columns": numeric_cols,
-            "categorical_columns": categorical_cols
-        }
+
+    if attempt > 1 and pending.get("last_error"):
+        prompt_txt = ERROR_FIX_PROMPT.format(
+            original_code=pending.get("code", ""),
+            error_message=pending.get("last_error", ""),
+            stdout=pending.get("last_stdout", ""),
+            numeric_columns=numeric_cols,
+            categorical_columns=categorical_cols,
+        )
     else:
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", CODE_GENERATION_PROMPT),
-            ("user", "Generate code for: {task_description}")
-        ])
-        prompt_input = {
-            "task_description": task_desc,
-            "numeric_columns": numeric_cols,
-            "categorical_columns": categorical_cols
-        }
-    
+        prompt_txt = CODE_GENERATION_PROMPT.format(
+            task_description=pending.get("description", ""),
+            numeric_columns=numeric_cols,
+            categorical_columns=categorical_cols,
+        )
+
     try:
-        response = llm.invoke(prompt.format_messages(**prompt_input))
-        code = response.content.strip()
-        
-        # Clean code — remove markdown code blocks
-        if code.startswith("```"):
-            code_lines = code.split("\n")
-            # Remove first line (```python) and last line (```)
-            if code_lines[0].startswith("```"):
-                code_lines = code_lines[1:]
-            if code_lines and code_lines[-1].strip() == "```":
-                code_lines = code_lines[:-1]
-            code = "\n".join(code_lines)
-        
-        # Save code to task
-        pending_task["code"] = code
-        
-        # Execute
+        code = _strip_markdown(plain_invoke(
+            task="EXECUTOR",
+            messages=[
+                {"role": "system", "content": "You generate Python code. Return ONLY code, no markdown."},
+                {"role": "user", "content": prompt_txt},
+            ],
+            temperature=0.1,
+            state=state,
+        ))
+
+        pending["code"] = code
+        pending["attempts"] = attempt
+
         result = execute_code(code, csv_path)
-        
-        # Log the attempt
+
         log_entry = {
-            "task_id": task_id,
-            "task_name": task_name,
+            "task_id": pending.get("task_id"),
+            "task_name": pending.get("task_name"),
             "attempt": attempt,
-            "code": code[:500],  # Truncate for log
+            "code": code[:500],
             "success": result["success"],
             "stdout": result["stdout"][:500],
             "stderr": result["stderr"][:500],
-            "error": result.get("error")
+            "error": result.get("error"),
         }
-        if state.get("execution_log") is None:
-            state["execution_log"] = []
-        state["execution_log"].append(log_entry)
-        
+        state.setdefault("execution_log", []).append(log_entry)
+
         if result["success"]:
-            # Task completed
-            pending_task["status"] = "completed"
-            
-            # Store results
-            if state.get("analysis_results") is None:
-                state["analysis_results"] = {}
-            state["analysis_results"][task_name] = {
-                "stdout": result["stdout"],
-                "completed_at_attempt": attempt
+            pending["status"] = "completed"
+            stats = result.get("stats") or {}
+            title = pending.get("task_name", "")
+            entry: Dict[str, Any] = {
+                "task_id": pending.get("task_id"),
+                "title": title,
+                "kind": KIND_MAP.get(title, "generic"),
+                "status": "completed",
+                "stats": stats,
             }
-            
-            # Track generated files
+            if pending.get("column"):
+                entry["column"] = pending["column"]
+            state.setdefault("analysis_results", [])
+            state["analysis_results"].append(entry)
+
             if result.get("generated_files"):
-                if state.get("generated_files") is None:
-                    state["generated_files"] = []
+                state.setdefault("generated_files", [])
                 state["generated_files"].extend(result["generated_files"])
-            
-            print(f"[EXECUTOR] Task {task_id} completed successfully")
-            
+            logger.info("Task %s completed", pending.get("task_id"))
         else:
-            # Task failed
-            pending_task["last_error"] = result.get("error", "Unknown error")
-            pending_task["last_stdout"] = result.get("stdout", "")
-            pending_task["attempts"] = attempt
-            
-            if attempt >= MAX_RETRIES:
-                pending_task["status"] = "failed"
-                print(f"[EXECUTOR] Task {task_id} failed after {MAX_RETRIES} attempts")
+            pending["last_error"] = result.get("error", "Unknown error")
+            pending["last_stdout"] = result.get("stdout", "")
+            if attempt >= pending.get("max_retries", MAX_RETRIES):
+                pending["status"] = "failed"
             else:
-                print(f"[EXECUTOR] Task {task_id} failed, will retry (attempt {attempt})")
-            
-    except Exception as e:
-        pending_task["attempts"] = attempt
-        pending_task["last_error"] = str(e)
-        log_entry = {
-            "task_id": task_id,
-            "task_name": task_name,
+                logger.info("Task %s failed, will retry (attempt %d)", pending.get("task_id"), attempt)
+
+    except Exception as e:  # noqa: BLE001  (LLM / executor errors)
+        pending["attempts"] = attempt
+        pending["last_error"] = str(e)
+        state.setdefault("execution_log", []).append({
+            "task_id": pending.get("task_id"),
+            "task_name": pending.get("task_name"),
             "attempt": attempt,
             "code": "",
             "success": False,
             "stdout": "",
             "stderr": "",
             "error": str(e),
-        }
-        if state.get("execution_log") is None:
-            state["execution_log"] = []
-        state["execution_log"].append(log_entry)
-
-        if "429" in str(e) or "rate" in str(e).lower():
-            import time
-            time.sleep(2.0)
-        if attempt >= MAX_RETRIES:
-            pending_task["status"] = "failed"
-            print(f"[EXECUTOR] Task {task_id} failed due to exception: {e}")
+        })
+        if attempt >= pending.get("max_retries", MAX_RETRIES):
+            pending["status"] = "failed"
         else:
-            print(f"[EXECUTOR] Task {task_id} error: {e}, retrying (attempt {attempt})")
+            logger.info("Task %s error: %s, retrying", pending.get("task_id"), e)
 
-    
     return state
 
 
 def reflector_node(state: AgentState) -> AgentState:
-    """Checks if analysis plan is complete and reflects on results."""
-    
-    analysis_plan = state.get("analysis_plan", [])
+    """QA pass: verifies coverage, appends tasks the planner missed."""
+    plan = state.get("analysis_plan", []) or []
     profile = state.get("profile", {})
-    analysis_results = state.get("analysis_results", {})
-    if analysis_results is None:
-        analysis_results = {}
-    
-    reflection_notes = state.get("reflection_notes", [])
-    if reflection_notes is None:
-        reflection_notes = []
-    
-    # Check 1: Any pending tasks?
-    pending = [t for t in analysis_plan if t["status"] == "pending"]
-    failed = [t for t in analysis_plan if t["status"] == "failed"]
-    
-    if pending:
-        note = f"Tasks still pending: {[t['task_name'] for t in pending]}"
-        reflection_notes.append(note)
-        state["reflection_notes"] = reflection_notes
-        print(f"[REFLECTOR] {note}")
+    results = state.get("analysis_results") or []
+    notes = state.get("reflection_notes") or []
+    if notes is None:
+        notes = []
+
+    pending_tasks = [t for t in plan if t.get("status") == "pending"]
+    if pending_tasks:
+        note = f"Tasks still pending: {[t.get('task_name') for t in pending_tasks[:5]]}"
+        notes.append(note)
+        state["reflection_notes"] = notes
         return state
-    
+
+    failed = [t for t in plan if t.get("status") == "failed"]
     if failed:
-        note = f"Tasks failed (max retries exceeded): {[t['task_name'] for t in failed]}"
-        reflection_notes.append(note)
-        state["reflection_notes"] = reflection_notes
-        print(f"[REFLECTOR] {note}")
-        # Continue to insight — partial results are better than nothing
-    
-    # Check 2: LLM reflection — did we miss anything?
-    completed_tasks = [t["task_name"] for t in analysis_plan if t["status"] == "completed"]
-    
-    if completed_tasks:
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", REFLECTION_PROMPT),
-            ("user", "Review this analysis.")
-        ])
-        
-        try:
-            response = llm.invoke(prompt.format_messages(
-                profile_summary=json.dumps({
-                    "numeric": profile.get("numeric_columns", []),
-                    "categorical": profile.get("categorical_columns", []),
-                    "missing": profile.get("missing_values", {}),
-                    "rows": profile.get("rows", 0)
-                }, indent=2),
-                completed_tasks=json.dumps(completed_tasks),
-                results_summary=json.dumps({
-                    k: v.get("stdout", "")[:200] 
-                    for k, v in analysis_results.items()
-                }, indent=2)
-            ))
-            
-            reflection_output = response.content.strip()
-            
-            if reflection_output != "COMPLETE":
-                # Try to parse additional tasks
-                try:
-                    if reflection_output.startswith("```"):
-                        reflection_output = reflection_output.split("```")[1]
-                        if reflection_output.startswith("json"):
-                            reflection_output = reflection_output[4:]
-                    additional_tasks = json.loads(reflection_output.strip())
-                    
-                    # Add new tasks to plan
-                    next_id = max([t["task_id"] for t in analysis_plan]) + 1
-                    for task in additional_tasks:
-                        task["task_id"] = next_id
-                        task["status"] = "pending"
-                        task["code"] = None
-                        task["attempts"] = 0
-                        task["max_retries"] = MAX_RETRIES
-                        analysis_plan.append(task)
-                        next_id += 1
-                    
-                    note = f"Reflection found missing analyses, added {len(additional_tasks)} new tasks"
-                    reflection_notes.append(note)
-                    state["analysis_plan"] = analysis_plan
-                    print(f"[REFLECTOR] {note}")
-                    
-                except (json.JSONDecodeError, AttributeError):
-                    note = f"Reflection response not parseable: {reflection_output[:200]}"
-                    reflection_notes.append(note)
-                    print(f"[REFLECTOR] {note}")
-            else:
-                note = "Reflection complete — all necessary analyses performed"
-                reflection_notes.append(note)
-                print(f"[REFLECTOR] {note}")
-                
-        except Exception as e:
-            note = f"Reflection LLM call failed: {e}"
-            reflection_notes.append(note)
-            if state.get("error_log") is None:
-                state["error_log"] = []
-            state["error_log"].append(f"Reflector: {note}")
-    
-    state["reflection_notes"] = reflection_notes
+        note = f"Tasks failed (max retries exceeded): {[t.get('task_name') for t in failed]}"
+        notes.append(note)
+        logger.info("[REFLECTOR] %s", note)
+
+    completed_names = [t.get("task_name") for t in plan if t.get("status") == "completed"]
+    if not completed_names:
+        state["reflection_notes"] = notes
+        return state
+
+    try:
+        profile_summary = {
+            "numeric": profile.get("numeric_columns", []),
+            "categorical": profile.get("categorical_columns", []),
+            "missing": profile.get("missing_values", {}),
+            "rows": profile.get("rows", 0),
+        }
+        user_payload = {
+            "profile_summary": profile_summary,
+            "completed_tasks": completed_names,
+            "results_summary": json.dumps(results, default=str)[:2000],
+        }
+        parsed = structured_invoke(
+            task="REFLECTOR",
+            messages=[
+                {"role": "system", "content": REFLECTION_PROMPT},
+                {"role": "user", "content": json.dumps(user_payload, indent=2, default=str)},
+            ],
+            schema=AnalysisReflection,
+            temperature=0.1,
+            state=state,
+        )
+
+        if parsed is None:
+            notes.append("Reflection failed (no structured output)")
+        elif parsed.complete and not parsed.additional_tasks:
+            notes.append("Reflection complete - all necessary analyses performed")
+        else:
+            current_max = max((int(t.get("task_id", 0)) for t in plan), default=0)
+            next_id = current_max + 1
+            for mt in parsed.additional_tasks:
+                plan.append({
+                    "task_id": next_id,
+                    "task_name": mt.task_name,
+                    "description": mt.description,
+                    "column": mt.column,
+                    "status": "pending",
+                    "code": None,
+                    "attempts": 0,
+                    "max_retries": MAX_RETRIES,
+                })
+                next_id += 1
+            notes.append(f"Reflection added {len(parsed.additional_tasks)} new task(s)")
+            state["analysis_plan"] = plan
+    except Exception as e:  # noqa: BLE001
+        note = f"Reflection LLM call failed: {e}"
+        notes.append(note)
+        state.setdefault("error_log", []).append(f"Reflector: {note}")
+
+    state["reflection_notes"] = notes
     if state.get("analysis_results"):
         state["status"] = "completed"
     return state
 
+
+def _strip_markdown(code: str) -> str:
+    code = code.strip()
+    if code.startswith("```"):
+        lines = code.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        code = "\n".join(lines).strip()
+    return code

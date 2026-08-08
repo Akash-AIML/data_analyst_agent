@@ -1,4 +1,4 @@
-"""Tab 2 component: Renders dataset metrics summary cards and embedded interactive ydata-profiling HTML report."""
+"""Tab 2 component: Renders dataset metrics summary cards and embedded interactive sweetviz HTML report."""
 
 import streamlit as st
 import streamlit.components.v1 as components

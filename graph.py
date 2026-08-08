@@ -1,56 +1,73 @@
-"""LangGraph integration pipeline linking Profiler, Analysis, and Insight agents."""
+"""LangGraph integration pipeline linking Profiler, Analysis, and Insight agents.
 
-import sys
+A real ``StateGraph`` (not a hand-written loop):
+    START -> profiler -> planner -> executor (self-loop while pending)
+          -> reflector (may append tasks, looping back to executor)
+          -> insight -> END
+
+If the profiler fails, control flows straight to the insight node so a
+degraded-but-useful report is still produced. State is the shared
+``AgentState`` dict; each node mutates and returns it in place.
+"""
+
 import os
+import sys
+from typing import Any, Dict, List
+
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from typing import Dict, Any
+from langgraph.graph import StateGraph, START, END
+
 from state import AgentState
 from agents.profiler.agent import profiler_node
 from agents.analysis.agent import planner_node, executor_node, reflector_node
 from agents.insight.insight_node import build_insight_node
 
 
+def _has_pending(state: Dict[str, Any]) -> bool:
+    return any(
+        t.get("status") == "pending"
+        for t in (state.get("analysis_plan") or [])
+    )
+
+
+def _profiler_route(state: Dict[str, Any]) -> str:
+    return "insight" if state.get("status") == "failed" else "planner"
+
+
+def _executor_route(state: Dict[str, Any]) -> str:
+    return "executor" if _has_pending(state) else "reflector"
+
+
+def _reflector_route(state: Dict[str, Any]) -> str:
+    return "executor" if _has_pending(state) else "insight"
+
+
 def create_pipeline(llm_model=None):
-    """Returns a step-by-step pipeline runner connecting Profiler, Analysis, and Insight agents."""
+    """Compile and return a runnable LangGraph pipeline.
+
+    ``llm_model`` binds the Insight node (tests pass a stub). Analysis and
+    Profiler nodes build their models from ``llm.py`` env config.
+    """
     insight_node = build_insight_node(llm_model)
 
-    def run_pipeline(initial_state: Dict[str, Any]) -> Dict[str, Any]:
-        s = dict(initial_state)
-        s = profiler_node(s)
-        if s.get("status") == "failed":
-            print(f"[PIPELINE] Profiler failed: {s.get('error_log')}")
-            # Even if profiler fails, run insight node to generate degraded report
-            return insight_node(s)
+    graph = StateGraph(AgentState)
 
-        s = planner_node(s)
-        loop_guard = 0
-        has_reflected = False
-        while loop_guard < 150:
-            pending_tasks = [
-                t for t in s.get("analysis_plan", [])
-                if t.get("status") == "pending" and t.get("attempts", 0) < t.get("max_retries", 3)
-            ]
-            if pending_tasks:
-                s = executor_node(s)
-            else:
-                if not has_reflected:
-                    has_reflected = True
-                    s = reflector_node(s)
-                    new_pending = [
-                        t for t in s.get("analysis_plan", [])
-                        if t.get("status") == "pending" and t.get("attempts", 0) < t.get("max_retries", 3)
-                    ]
-                    if not new_pending:
-                        break
-                else:
-                    break
-            loop_guard += 1
+    graph.add_node("profiler", profiler_node)
+    graph.add_node("planner", planner_node)
+    graph.add_node("executor", executor_node)
+    graph.add_node("reflector", reflector_node)
+    graph.add_node("insight", insight_node)
 
-        s = insight_node(s)
-        return s
+    graph.add_edge(START, "profiler")
+    graph.add_conditional_edges("profiler", _profiler_route, {"planner": "planner", "insight": "insight"})
+    graph.add_edge("planner", "executor")
+    graph.add_conditional_edges("executor", _executor_route, {"executor": "executor", "reflector": "reflector"})
+    graph.add_conditional_edges("reflector", _reflector_route, {"executor": "executor", "insight": "insight"})
+    graph.add_edge("insight", END)
 
-    return run_pipeline
+    compiled = graph.compile()
+    return compiled
 
 
 if __name__ == "__main__":
@@ -60,7 +77,7 @@ if __name__ == "__main__":
     initial_state = fixtures.healthy_state()
     if os.path.exists(sample_csv):
         initial_state["csv_path"] = sample_csv
-    final_state = pipeline(initial_state)
+    final_state = pipeline.invoke(initial_state)
     print("\n" + "=" * 60)
     print("PIPELINE EXECUTION COMPLETED")
     print("=" * 60)
@@ -69,4 +86,3 @@ if __name__ == "__main__":
     print(f"PDF Path:      {final_state.get('pdf_path')}")
     print(f"Insights:      {len(final_state.get('insights', []))}")
     print(f"Recommendations: {len(final_state.get('recommendations', []))}")
-

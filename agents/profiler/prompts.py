@@ -1,5 +1,5 @@
 PROFILER_SYSTEM_PROMPT = """
-You are a meticulous data profiler. You receive basic DataFrame information and a ydata-profiling HTML report path.
+You are a meticulous data profiler. You receive basic DataFrame information and a sweetviz HTML report path.
 Your task is to produce a structured dataset profile that accurately classifies columns and documents data quality.
 
 Use these rules strictly:
