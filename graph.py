@@ -24,15 +24,29 @@ def create_pipeline(llm_model=None):
             return insight_node(s)
 
         s = planner_node(s)
-        # The analysis executor handles one task per call; loop until no
-        # pending work remains (retries + task processing), then reflect.
         loop_guard = 0
-        while any(t.get("status") == "pending" for t in s.get("analysis_plan", [])):
-            s = executor_node(s)
+        has_reflected = False
+        while loop_guard < 150:
+            pending_tasks = [
+                t for t in s.get("analysis_plan", [])
+                if t.get("status") == "pending" and t.get("attempts", 0) < t.get("max_retries", 3)
+            ]
+            if pending_tasks:
+                s = executor_node(s)
+            else:
+                if not has_reflected:
+                    has_reflected = True
+                    s = reflector_node(s)
+                    new_pending = [
+                        t for t in s.get("analysis_plan", [])
+                        if t.get("status") == "pending" and t.get("attempts", 0) < t.get("max_retries", 3)
+                    ]
+                    if not new_pending:
+                        break
+                else:
+                    break
             loop_guard += 1
-            if loop_guard > 100:  # safety: avoid infinite loop
-                break
-        s = reflector_node(s)
+
         s = insight_node(s)
         return s
 

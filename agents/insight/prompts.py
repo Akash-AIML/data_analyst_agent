@@ -172,50 +172,13 @@ class ResilientFallbackModel(BaseChatModel):
 
 
 
+from tools.llm_factory import get_ordered_llm
+
+
 def get_chat_model(model: Optional[str] = None, temperature: float = 0.2) -> BaseChatModel:
-    """Default chat model. Configured with automatic fallback across OpenAI and Groq."""
-    import os
-    from dotenv import load_dotenv
-    load_dotenv(override=True)
+    """Default chat model. Configured with automatic fallback across Groq, Gemini, and OpenAI."""
+    return get_ordered_llm(model=model, temperature=temperature)
 
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    groq_llm = None
-    if groq_key:
-        try:
-            from langchain_groq import ChatGroq
-            groq_llm = ChatGroq(
-                model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-                groq_api_key=groq_key,
-                temperature=temperature,
-            )
-        except Exception:
-            pass
-
-    openai_key = os.getenv("OPENAI_API_KEY", "")
-    if openai_key:
-        from langchain_openai import ChatOpenAI
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        m = model or os.getenv("MODEL", "gpt-4.1-nano")
-        primary_llm = ChatOpenAI(
-            model=m,
-            api_key=openai_key,
-            base_url=base_url,
-            temperature=temperature,
-            max_retries=0,
-        )
-
-        if groq_llm:
-            return ResilientFallbackModel(primary=primary_llm, fallback=groq_llm)
-        return primary_llm
-    elif groq_llm:
-        return groq_llm
-    elif os.getenv("GEMINI_API_KEY"):
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=temperature)
-    else:
-        from langchain_openai import ChatOpenAI
-        m = model or os.getenv("MODEL", "gpt-4.1-nano")
-        return ChatOpenAI(model=m, temperature=temperature)
 
 
 
