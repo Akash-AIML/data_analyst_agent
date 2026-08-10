@@ -9,6 +9,32 @@
 secrets/
 
 # ==========================================
+# Frontend & Node.js Build Artifacts
+# ==========================================
+node_modules/
+frontend/node_modules/
+.output/
+frontend/.output/
+.tanstack/
+frontend/.tanstack/
+.wrangler/
+frontend/.wrangler/
+.nitro/
+frontend/.nitro/
+dist/
+dist-ssr/
+frontend/dist/
+frontend/dist-ssr/
+.vite/
+frontend/.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# ==========================================
 # Python Bytecode & Build Artifacts
 # ==========================================
 __pycache__/
