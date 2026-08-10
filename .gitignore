@@ -1,34 +1,100 @@
-# Secrets
+# ==========================================
+# Environments & Secrets
+# ==========================================
 .env
-.env.example
-prompt.md
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
 
-# Python
+# ==========================================
+# Python Bytecode & Build Artifacts
+# ==========================================
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-dist/
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
 *.egg
-.pytest_cache/
 
-# Virtual environments
+# ==========================================
+# Virtual Environments
+# ==========================================
 venv/
 .venv/
 env/
+ENV/
+env.bak/
+venv.bak/
 
-# Generated output / artifacts
+# ==========================================
+# Testing, Coverage & Type Check Caches
+# ==========================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# ==========================================
+# Generated Pipeline Outputs & Data Uploads
+# ==========================================
 output/
-output/profiles/*.html
 uploads/
+*.html
+!ui/index.html
+!ui/*.html
+*.pdf
+llm_cache.json
 
-# IDE / OS
+# ==========================================
+# Streamlit & App Secrets
+# ==========================================
+.streamlit/secrets.toml
+
+# ==========================================
+# IDEs, Editors & OS Files
+# ==========================================
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Agent scratch
-.agent
+# ==========================================
+# Agent & Temporary Logs / Artifacts
+# ==========================================
+.agent/
+.agents/
+.gemini/
+*.log

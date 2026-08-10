@@ -152,17 +152,21 @@ def execute_code(code: str, csv_path: str) -> dict:
         if not k.startswith(("OPENAI_", "GROQ_", "GEMINI_", "GOOGLE_", "NVIDIA_", "NVAPI", "NIM_"))
     }
     clean_env.setdefault("TMPDIR", tempfile.gettempdir())
-    clean_env.setdefault("PYTHONNOUSERSITE", "1")
+
+    run_kwargs: dict = {
+        "capture_output": True,
+        "text": True,
+        "timeout": EXECUTION_TIMEOUT,
+        "cwd": os.getcwd(),  # project root so output/analysis/ works
+        "env": clean_env,
+    }
+    if os.name != "nt":
+        run_kwargs["preexec_fn"] = _rlimits
 
     try:
         result = subprocess.run(
-            [sys.executable, "-E", script_path],
-            capture_output=True,
-            text=True,
-            timeout=EXECUTION_TIMEOUT,
-            cwd=os.getcwd(),  # project root so output/analysis/ works
-            env=clean_env,
-            preexec_fn=_rlimits,
+            [sys.executable, script_path],
+            **run_kwargs
         )
 
         stdout = result.stdout[:MAX_OUTPUT_BYTES]
@@ -176,7 +180,7 @@ def execute_code(code: str, csv_path: str) -> dict:
                     rel_path = os.path.relpath(fpath, os.getcwd()).replace("\\", "/")
                     generated_files.append(rel_path)
 
-        success = result.returncode == 0 and not stderr.strip()
+        success = result.returncode == 0
         stats = _parse_stats(stdout)
 
         return {

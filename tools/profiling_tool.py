@@ -3,7 +3,7 @@ import io
 import contextlib
 import pandas as pd
 import sweetviz as sv
-from langchain.tools import BaseTool
+from langchain_core.tools import BaseTool
 from typing import Type
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv

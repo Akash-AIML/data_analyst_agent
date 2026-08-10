@@ -8,6 +8,16 @@ Run locally:
 
 from __future__ import annotations
 
+import sys
+
+# Safeguard against broken PyTorch/transformers DLL initialization on Windows
+try:
+    import transformers  # noqa: F401
+except OSError:
+    sys.modules["transformers"] = None
+except ImportError:
+    pass
+
 import streamlit as st
 
 # Set page config as the very first Streamlit call

@@ -107,7 +107,7 @@ if nums:
     _ncols = 2
     _nrows = max(1, (len(nums) + _ncols - 1) // _ncols)
     fig, axes = plt.subplots(_nrows, _ncols, figsize=(5 * _ncols, 4 * _nrows))
-    axes = [axes] if len(nums) == 1 else axes.flatten()
+    axes = np.array(axes).reshape(-1)
     for _i, _c in enumerate(nums):
         _s = df[_c].dropna()
         if _s.empty:
