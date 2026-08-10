@@ -156,21 +156,21 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
         errors.append(f"could not render HTML report: {exc}")
 
     pdf_path = None
+    pdf_ok = False
     if "could not render HTML report" not in "\n".join(errors):
         try:
             pdf_path = _render_pdf(html, output_dir, safe_name)
-        except Exception:
-            pdf_path = None
+            pdf_ok = pdf_path is not None
+        except Exception as exc:  # noqa: BLE001 - graceful degradation
+            errors.append(f"PDF generation failed (HTML still delivered): {exc}")
 
     state["report_path"] = html_path
     state["pdf_path"] = pdf_path
+    state["report_status"] = report_status
     state["error_log"] = (state.get("error_log") or []) + errors
 
-    if validation.get("errors") or "could not render HTML report" in "\n".join(errors):
+    if errors:
         state["report_status"] = "degraded"
-    else:
-        state["report_status"] = report_status
-
     if "could not render HTML report" in "\n".join(errors):
         state["report_status"] = "failed"
 
@@ -178,8 +178,10 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
 
 
 def _render_pdf(html: str, output_dir: str, safe_name: str) -> Optional[str]:
-    """HTML -> PDF via weasyprint; returns path or raises on failure."""
-    from weasyprint import HTML  # imported lazily
+    """HTML -> PDF via weasyprint; returns path or None on failure."""
+    # pyrefly: ignore [missing-import]
+    from weasyprint import HTML  # imported lazily: keeps import fast in tests
+
     pdf_path = os.path.join(output_dir, f"{safe_name}_report.pdf")
     HTML(string=html, base_url=output_dir).write_pdf(pdf_path)
     return pdf_path if os.path.exists(pdf_path) else None

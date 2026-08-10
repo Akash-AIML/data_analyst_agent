@@ -163,7 +163,7 @@ def structured_invoke(chat: BaseChatModel, schema: type[BaseModel], prompt: str)
 
 # alias to keep signature/semantics readable
 _central_structured_invoke = _structured_invoke
-
+    
 
 def generate_insights(
     chat: BaseChatModel,

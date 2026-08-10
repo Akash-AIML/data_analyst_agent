@@ -332,4 +332,44 @@ All generated artifacts are saved in the `output/` directory:
 
 - Support for multi-file CSV uploads and relational database connectors.
 - Dockerized sandbox containers for stricter execution isolation.
-- Interactive Plotly/Bokeh chart generation in place of static PNG images.
+
+### 1. Run FastAPI Backend
+```bash
+python -m uvicorn api.main:app --reload --port 8000
+```
+
+### 2. Run React Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+
+### 1. Run FastAPI Backend
+```bash
+python -m uvicorn api.main:app --reload --port 8000
+```
+
+### 2. Run React Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### 3. Run Streamlit App (Alternative UI)
+```bash
+streamlit run app.py
+```
+
+### 4. Run Test Suite
+```bash
+pytest
+```
+
+## Shared state contract
+Single source of truth: `state.py` (or `state/graph_state.py`) re-exported so all agents import `AgentState` from one place.
+
+## Setup / env
+Set the relevant LLM keys in `.env`: `OPENAI_API_KEY`, `GROQ_API_KEY`, or `GEMINI_API_KEY`.

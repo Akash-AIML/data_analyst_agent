@@ -7,7 +7,6 @@ import {
   PanelLeft,
   Rocket,
   Wrench,
-  Sparkle,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -37,10 +36,7 @@ export function Sidebar({
         transition={{ type: "spring", stiffness: 260, damping: 30 }}
         className="sticky top-0 z-30 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar/80 backdrop-blur-xl md:flex"
       >
-        <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
-          <div className="relative grid size-9 shrink-0 place-items-center rounded-xl bg-[image:var(--gradient-primary)] shadow-glow">
-            <Sparkle className="size-4 text-primary-foreground" aria-hidden />
-          </div>
+        <div className="flex h-16 items-center border-b border-sidebar-border px-4">
           {!collapsed && (
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold tracking-tight">AI Data Analyst</p>

@@ -1,4 +1,4 @@
-@import "tailwindcss" source(none);
+@import "tailwindcss";
 @source "../src";
 @import "tw-animate-css";
 
@@ -190,14 +190,19 @@
   box-shadow: var(--shadow-glow);
 }
 
-/* Hide any injected Lovable badge, logo, overlay, or watermark */
+/* Hide any injected Lovable badge, logo, icon, overlay, or watermark */
 #lovable-badge,
-[id*="lovable-badge"],
-[class*="lovable-badge"],
+[id*="lovable"],
+[class*="lovable"],
+[data-lovable],
 [data-lovable-badge],
 a[href*="lovable.dev"],
-div[class*="lovable-badge"],
-iframe[src*="lovable.dev"] {
+a[href*="lovable"],
+div[class*="lovable"],
+iframe[src*="lovable.dev"],
+iframe[src*="lovable"],
+img[src*="lovable"],
+svg[class*="lovable"] {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;

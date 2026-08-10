@@ -1,4 +1,4 @@
-import { Activity, Bell, Database, Settings } from "lucide-react";
+import { Bell, Database, Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,9 +11,6 @@ export function Header() {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/70 px-4 backdrop-blur-xl lg:px-6">
       <div className="flex items-center gap-3">
-        <div className="grid size-8 place-items-center rounded-lg bg-[image:var(--gradient-primary)] shadow-glow md:hidden">
-          <Activity className="size-4 text-primary-foreground" aria-hidden />
-        </div>
         <h1 className="text-sm font-semibold tracking-tight sm:text-base">AI Data Analyst Agent</h1>
       </div>
 
