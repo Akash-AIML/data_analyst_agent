@@ -8,20 +8,50 @@ A real ``StateGraph`` (not a hand-written loop):
 If the profiler fails, control flows straight to the insight node so a
 degraded-but-useful report is still produced. State is the shared
 ``AgentState`` dict; each node mutates and returns it in place.
+
+LangSmith tracing is enabled automatically when ``LANGSMITH_TRACING_V2=true``
+(or the legacy ``LANGSMITH_TRACING=true``) is set with a configured API key;
+``invoke(..., config=...)`` is forwarded as-is so callers can attach run
+metadata/tags for filtering in the LangSmith UI.
 """
 
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 
 from state import AgentState
 from agents.profiler.agent import profiler_node
 from agents.analysis.agent import planner_node, executor_node, reflector_node
 from agents.insight.insight_node import build_insight_node
+from llm import LANGSMITH_PROJECT, _tracing_metadata
+
+
+def _default_runnable_config(state: AgentState,
+                             config: Optional[RunnableConfig] = None) -> RunnableConfig:
+    """Merge caller config with LangSmith defaults.
+
+    Tags every LangSmith run with ``ai-data-analyst`` and project metadata
+    (csv_path, status) so traces are filterable. The caller's ``config``
+    wins on conflict.
+    """
+    base: RunnableConfig = {
+        "tags": ["ai-data-analyst"],
+        "metadata": _tracing_metadata(state, {"graph": "data_analyst_agent"}),
+        "run_name": f"pipeline::{state.get('csv_path', 'unknown')}",
+    }
+    if not config:
+        return base
+    merged: RunnableConfig = {**base, **config}
+    merged.setdefault("metadata", {})
+    if "metadata" in base:
+        merged["metadata"] = {**base["metadata"], **merged.get("metadata", {})}
+    merged["tags"] = list({*(base.get("tags") or []), *(config.get("tags") or [])})
+    return merged
 
 
 def _has_pending(state: Dict[str, Any]) -> bool:
@@ -77,7 +107,10 @@ if __name__ == "__main__":
     initial_state = fixtures.healthy_state()
     if os.path.exists(sample_csv):
         initial_state["csv_path"] = sample_csv
-    final_state = pipeline.invoke(initial_state)
+    final_state = pipeline.invoke(
+        initial_state,
+        config=_default_runnable_config(initial_state),
+    )
     print("\n" + "=" * 60)
     print("PIPELINE EXECUTION COMPLETED")
     print("=" * 60)

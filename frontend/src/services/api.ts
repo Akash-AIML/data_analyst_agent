@@ -1,8 +1,9 @@
 import { mockHealth, mockProfile, mockInsights, mockRecommendations } from "@/data/mock";
 import type { DatasetProfile, Insight, Recommendation, ServiceHealth, ExecutionLog, ChatMessage } from "@/types";
 
-const API_BASE = (import.meta.env['VITE_API_BASE_URL'] as string | undefined) ?? "";
-const TIMEOUT_MS = 15000;
+const API_BASE = (import.meta.env['VITE_API_BASE_URL'] as string | undefined) || "http://localhost:8000";
+const TIMEOUT_MS = 300000; // 5 minutes timeout for multi-agent pipeline execution
+
 
 export interface ApiResult<T> {
   data: T;
@@ -20,13 +21,16 @@ export interface AnalyzeResponse {
   report_url?: string;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, timeoutMs: number = TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
     const res = await fetch(url, { ...init, signal: controller.signal });
-    if (!res.ok) throw new Error(`Request failed [${res.status}]`);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`Request failed [${res.status}]: ${errText || res.statusText}`);
+    }
     return (await res.json()) as T;
   } finally {
     clearTimeout(timer);
@@ -38,21 +42,15 @@ export async function analyze(file: File): Promise<ApiResult<AnalyzeResponse>> {
   const body = new FormData();
   body.append("file", file);
   try {
-    const data = await request<AnalyzeResponse>("/analyze", { method: "POST", body });
+    const data = await request<AnalyzeResponse>("/analyze", { method: "POST", body }, 300000);
     return { data, mock: false };
   } catch (error) {
-    return {
-      data: {
-        status: "completed",
-        profile: { ...mockProfile, filename: file.name },
-        insights: mockInsights,
-        recommendations: mockRecommendations,
-      },
-      mock: true,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
+    const errMsg = error instanceof Error ? error.message : "Unknown error";
+    console.error("Backend pipeline execution failed:", error);
+    throw new Error(errMsg);
   }
 }
+
 
 /** POST /chat — send a question to the report grounded insight chat endpoint. */
 export async function sendChatMessage(message: string): Promise<ApiResult<ChatMessage>> {

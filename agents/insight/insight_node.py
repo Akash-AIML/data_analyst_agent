@@ -17,8 +17,9 @@ from agents.insight import prompts
 from agents.insight import report_generator
 from agents.insight.validation import extract_evidence, validate_results
 from agents.insight.verify import verify_by_recompute
+from config import REPORT_DIR
 
-DEFAULT_OUTPUT_DIR = "output/reports"
+DEFAULT_OUTPUT_DIR = REPORT_DIR
 
 
 def _thinking(state: Dict[str, Any], message: str) -> None:
@@ -126,7 +127,8 @@ def _generate_insights(llm: Any, evidence: List[Dict[str, Any]],
         verified,
         state.get("csv_path", ""),
         profile=state.get("profile"),
-        tolerance=0.03,
+        tolerance=None,    # fall through to RECOMPUTE_TOLERANCE env (default 0.03)
+        abs_tolerance=None,  # falls through to RECOMPUTE_ABS_TOLERANCE env
     )
     deduped = prompts.dedupe_by_metric(recompute_kept)
     dropped = len(raw) - len(deduped)

@@ -38,8 +38,18 @@ const healthMeta: Record<HealthStatus, { icon: typeof CheckCircle2; tone: string
 };
 
 export function Diagnostics() {
-  const { health, mockMode, pipelineDurationMs } = useStore();
-  const [open, setOpen] = useState<string | null>(mockLogs[0]?.id ?? null);
+  const store = useStore();
+  const health = store.health || mockHealth;
+  const mockMode = store.mockMode;
+  const pipelineDurationMs = store.pipelineDurationMs || 21540;
+  const profile = store.profile || mockProfile;
+  const insights = store.insights || mockInsights;
+  const recommendations = store.recommendations || mockRecommendations;
+  const logs = store.executionLogs || mockLogs;
+  const model = store.model || "gpt-4.1-nano";
+
+
+  const [open, setOpen] = useState<string | null>(logs[0]?.id ?? null);
 
   const totals = useMemo(() => {
     const cost = mockTelemetry.reduce((a, t) => a + t.cost, 0);
@@ -48,12 +58,49 @@ export function Diagnostics() {
     return { cost, tokens, latency };
   }, []);
 
-  const stateJson = JSON.stringify(mockAgentState, null, 2);
+  const agentState = useMemo(
+    () => ({
+      dataset: {
+        filename: profile?.filename ?? "sales_transactions.csv",
+        rows: profile?.rows ?? 1000,
+        columns: profile?.columns ?? 10,
+        quality_score: profile?.qualityScore ?? 98.5,
+      },
+      pipeline: {
+        status: store.pipelineStatus || "completed",
+        attempt: 1,
+        duration_ms: pipelineDurationMs,
+        nodes: ["profiler", "planner", "executor", "reflector", "insight", "report"],
+      },
+      config: {
+        model,
+        temperature: store.config?.temperature ?? 0.1,
+        timeout_s: store.config?.timeout ?? 60,
+        max_retries: store.config?.maxRetries ?? 3,
+      },
+      insights: (insights || []).map((i) => ({
+        id: i.id,
+        title: i.title,
+        severity: i.severity,
+        confidence: i.confidence,
+        target_metric: i.targetMetric,
+      })),
+      recommendations: (recommendations || []).map((r) => ({
+        id: r.id,
+        action: r.action,
+        insight_id: r.insightId,
+      })),
+    }),
+    [profile, store.pipelineStatus, pipelineDurationMs, model, store.config, insights, recommendations],
+  );
+
+  const stateJson = JSON.stringify(agentState, null, 2);
 
   function copyJson() {
     void navigator.clipboard?.writeText(stateJson);
     toast.success("Agent state copied to clipboard");
   }
+
 
   return (
     <div>
@@ -108,7 +155,8 @@ export function Diagnostics() {
         </TabsList>
 
         <TabsContent value="logs" className="mt-4 space-y-3">
-          {mockLogs.map((log) => (
+          {logs.map((log) => (
+
             <Collapsible
               key={log.id}
               open={open === log.id}

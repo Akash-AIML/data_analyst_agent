@@ -1,0 +1,5 @@
+id,mixed_col,date_col,notes
+1,100,2026-01-01,normal
+2,N/A,invalid_date,missing
+3,3.14159,2026/12/31,float string
+4,true,08-11-2026,boolean

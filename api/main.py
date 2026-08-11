@@ -13,8 +13,10 @@ import shutil
 import logging
 import uuid
 from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Body
+from fastapi import FastAPI, File, UploadFile, HTTPException, Body, BackgroundTasks, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +24,11 @@ from dotenv import load_dotenv
 
 from state import AgentState
 from agents.profiler.agent import profiler_node
+from config import (
+    PROFILE_DIR, REPORT_DIR, UPLOAD_DIR, API_ALLOWED_ORIGINS,
+    API_MAX_FILE_SIZE_MB, API_BEARER_TOKEN, ensure_dirs, snapshot,
+)
+
 
 try:
     from graph import create_pipeline
@@ -42,12 +49,12 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
 )
 
-OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output/profiles")
-UPLOAD_DIR = "uploads"
+# Resolve output paths from config (single source of truth).
+OUTPUT_DIR = PROFILE_DIR
+REPORTS_DIR = REPORT_DIR
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+ensure_dirs()
 
 # ---------------------------------------------------------------------------
 # App
@@ -79,13 +86,46 @@ app = FastAPI(
     openapi_tags=tags_metadata,
 )
 
+# CORS: configurable allowlist. ``*`` is the default for local dev; production
+# deployments should set ALLOWED_ORIGINS to a comma-separated list of origins.
+_cors_origins = (
+    ["*"] if API_ALLOWED_ORIGINS.strip() in ("", "*")
+    else [o.strip() for o in API_ALLOWED_ORIGINS.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # restrict to UI origin in production
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=API_ALLOWED_ORIGINS.strip() not in ("", "*"),
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Security & Helper Setup
+# ---------------------------------------------------------------------------
+security_scheme = HTTPBearer(auto_error=False)
+
+
+def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Security(security_scheme)):
+    """Enforces Bearer token auth if API_BEARER_TOKEN env var is set."""
+    if API_BEARER_TOKEN:
+        if not credentials or credentials.credentials != API_BEARER_TOKEN:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or missing authentication token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+
+def _safe_remove(path: str):
+    """Background task to remove temporary upload file non-blockingly."""
+    if path and os.path.exists(path):
+        try:
+            os.remove(path)
+            logger.info("Cleaned up temp file in background: %s", path)
+        except Exception as exc:
+            logger.warning("Could not remove temp file %s: %s", path, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -103,10 +143,8 @@ def health_check():
     ]
 
 
-
-
-@app.post("/analyze", tags=["profiler"])
-async def analyze(file: UploadFile = File(...)):
+@app.post("/analyze", tags=["profiler"], dependencies=[Depends(verify_token)])
+async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
     Upload a CSV file and run the multi-agent analysis pipeline.
 
@@ -122,7 +160,7 @@ async def analyze(file: UploadFile = File(...)):
         )
 
     # --- Check file size ---
-    max_mb = float(os.getenv("MAX_FILE_SIZE_MB", "200"))
+    max_mb = API_MAX_FILE_SIZE_MB
     contents = await file.read()
     size_mb = len(contents) / (1024 * 1024)
     if size_mb > max_mb:
@@ -144,6 +182,9 @@ async def analyze(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {exc}")
     finally:
         await file.close()
+
+    # Schedule background cleanup after endpoint response completes
+    background_tasks.add_task(_safe_remove, temp_path)
 
     # --- Build initial state ---
     state: AgentState = {
@@ -174,10 +215,6 @@ async def analyze(file: UploadFile = File(...)):
     except Exception as exc:
         logger.exception("Unexpected error executing analysis pipeline")
         raise HTTPException(status_code=500, detail=f"Internal server error: {exc}")
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-            logger.info("Cleaned up temp file: %s", temp_path)
 
     # --- Handle failure ---
     if result_state.get("status") == "failed":
@@ -210,17 +247,20 @@ async def analyze(file: UploadFile = File(...)):
 def get_report(filename: str):
     """
     Serve a generated HTML report by filename.
+
+    Looks in both PROFILE_DIR (sweetviz reports) and REPORT_DIR (final insight
+    reports) so legacy /report/<file>.html requests keep working regardless of
+    which pipeline stage produced the file.
     """
     safe_filename = Path(filename).name
-    report_path = os.path.join(OUTPUT_DIR, safe_filename)
-
-    if not os.path.exists(report_path):
-        # Also check current working directory / root output
-        alt_path = os.path.join("output", safe_filename)
-        if os.path.exists(alt_path):
-            report_path = alt_path
-        else:
-            raise HTTPException(status_code=404, detail=f"Report '{safe_filename}' not found.")
+    candidates = [
+        os.path.join(REPORTS_DIR, safe_filename),
+        os.path.join(OUTPUT_DIR, safe_filename),
+        os.path.join("output", safe_filename),
+    ]
+    report_path = next((p for p in candidates if os.path.exists(p)), None)
+    if not report_path:
+        raise HTTPException(status_code=404, detail=f"Report '{safe_filename}' not found.")
 
     return FileResponse(
         path=report_path,
@@ -229,8 +269,15 @@ def get_report(filename: str):
     )
 
 
-@app.post("/chat", tags=["chat"])
+@app.get("/config", tags=["meta"])
+def get_config():
+    """Effective runtime config (non-secret). Useful for ops debugging."""
+    return snapshot()
+
+
+@app.post("/chat", tags=["chat"], dependencies=[Depends(verify_token)])
 def chat_endpoint(payload: dict = Body(...)):
+
     """
     Report and insight grounded Q&A endpoint.
     """

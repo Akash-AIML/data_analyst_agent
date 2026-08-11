@@ -38,11 +38,56 @@ from langchain_core.messages import AIMessage, BaseMessage
 
 from pydantic import BaseModel
 
+load_dotenv(override=True)
+
+
+# ---------------------------------------------------------------------------
+# LangSmith tracing
+# ---------------------------------------------------------------------------
+# LangChain picks up LANGSMITH_TRACING_V2=true (preferred) or LANGSMITH_TRACING=true,
+# plus LANGSMITH_API_KEY and LANGSMITH_PROJECT from env automatically. We just
+# normalize the legacy var name and expose a ``tracing_enabled`` flag so callers
+# (CLI, FastAPI) can short-circuit when no key is configured.
+
+LANGSMITH_TRACING_ENABLED = (
+    os.getenv("LANGSMITH_TRACING_V2", "").lower() in ("1", "true", "yes")
+    or os.getenv("LANGSMITH_TRACING", "").lower() in ("1", "true", "yes")
+) and bool(os.getenv("LANGSMITH_API_KEY") or os.getenv("LANGCHAIN_API_KEY"))
+
+LANGSMITH_PROJECT = (
+    os.getenv("LANGSMITH_PROJECT")
+    or os.getenv("LANGCHAIN_PROJECT")
+    or "ai-data-analyst"
+)
+
+
+def _tracing_metadata(state: Optional[Dict[str, Any]] = None,
+                      extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Build the metadata dict we attach to every LangSmith run.
+
+    Includes run-level context (csv_path, task) so traces are filterable in
+    the LangSmith UI. Never includes API keys or PII from the dataframe.
+    """
+    md: Dict[str, Any] = {"langsmith_project": LANGSMITH_PROJECT}
+    if state is not None:
+        csv_path = state.get("csv_path")
+        if csv_path:
+            md["csv_path"] = os.path.basename(str(csv_path))
+        md["status"] = state.get("status", "unknown")
+    if extra:
+        for k, v in extra.items():
+            if v is not None:
+                md[k] = v
+    return md
+
+
 # Rate-limit pacing + budget guard (make sure it honors both our test env and
 # live envs).  NVIDIA NIM is cheap and high-RPM sequential, but other providers
 # (e.g. a LiteLLM proxy at 10k TPM) throttle on bursts, so we pace conservatively.
 _MIN_INTERVAL_S = float(os.getenv("LLM_MIN_INTERVAL_S", "1.0"))
-_BUDGET_US = float(os.getenv("LLM_BUDGET_US", "1.0")) or 0.0
+# Budget values are read lazily via ``_budget_limit()`` etc. so tests can
+# monkeypatch env vars without re-importing the module.
+_BUDGET_WARN_RATIO = float(os.getenv("LLM_BUDGET_WARN_RATIO", "0.8"))
 
 _THREAD_LOCK = None
 try:
@@ -53,6 +98,25 @@ except Exception:  # noqa: BLE001
 
 _last_call_ts: float = 0.0
 _run_cost_us = 0.0
+_budget_warned: bool = False  # only log the warn once per run
+
+
+def _budget_limit() -> float:
+    """Read LLM_BUDGET_US at call time (so env reloads are honored)."""
+    return float(os.getenv("LLM_BUDGET_US", "1.0") or 0.0)
+
+
+def budget_total() -> float:
+    """Cumulative cost accrued so far in this process."""
+    return _run_cost_us
+
+
+def budget_reset() -> None:
+    """Reset the per-run accumulator (used by tests + between pipeline runs)."""
+    global _run_cost_us, _last_call_ts, _budget_warned
+    _run_cost_us = 0.0
+    _last_call_ts = 0.0
+    _budget_warned = False
 
 
 def _pace() -> None:
@@ -61,13 +125,24 @@ def _pace() -> None:
     ``LLM_MIN_INTERVAL_S`` spaces sequential calls (avoids TPM/RPM 429s on
     bursty proxies). ``LLM_BUDGET_US`` (0 = disabled) stops new LLM work once a
     run's estimated cost passes the cap; callers degrade deterministically.
+    Logs a soft warning at ``LLM_BUDGET_WARN_RATIO`` (default 80%) of the cap
+    so an operator sees the spend before the hard stop kicks in.
     """
-    global _last_call_ts, _run_cost_us
-    if _BUDGET_US and _run_cost_us >= _BUDGET_US:
-        raise RuntimeError(
-            f"llm budget exhausted (est ${_run_cost_us:.4f} >= "
-            f"${_BUDGET_US}); deterministic fallbacks engaged"
-        )
+    global _last_call_ts, _run_cost_us, _budget_warned
+    limit = _budget_limit()
+    if limit:
+        if _run_cost_us >= limit:
+            raise RuntimeError(
+                f"llm budget exhausted (est ${_run_cost_us:.4f} >= "
+                f"${limit}); deterministic fallbacks engaged"
+            )
+        if not _budget_warned and _run_cost_us >= limit * _BUDGET_WARN_RATIO:
+            _budget_warned = True
+            logger.warning(
+                "llm budget at %.0f%% (est $%.4f of $%.4f) - further "
+                "calls may be cut off",
+                _BUDGET_WARN_RATIO * 100, _run_cost_us, limit,
+            )
     if _THREAD_LOCK is not None and _THREAD_LOCK.acquire(False):
         try:
             import time as _t
@@ -84,7 +159,37 @@ def _charge(usage: Dict[str, Any]) -> None:
     cost = usage.get("cost_usd") or 0.0
     _run_cost_us += float(cost)
 
-load_dotenv(override=True)
+
+def _record_budget_summary(state: Optional[Dict[str, Any]]) -> None:
+    """Stash the current cumulative spend on state so callers can display it.
+
+    Idempotent: overwrites any previous summary with the latest totals so the
+    final report always reflects the actual run cost (not a stale snapshot).
+    """
+    if state is None:
+        return
+    summary = {
+        "task": "__budget__",
+        "model": "aggregator",
+        "ok": True,
+        "cost_usd_total": round(_run_cost_us, 6),
+        "calls": sum(
+            1 for c in (state.get("llm_calls") or []) if c.get("task") != "__budget__"
+        ),
+        "budget_limit_us": _budget_limit(),
+        "budget_exhausted": bool(
+            _budget_limit() and _run_cost_us >= _budget_limit()
+        ),
+    }
+    calls = state.get("llm_calls")
+    if isinstance(calls, list):
+        # replace the last budget entry (if any) without growing the list
+        for i in range(len(calls) - 1, -1, -1):
+            if calls[i].get("task") == "__budget__":
+                calls[i] = summary
+                return
+        calls.append(summary)
+
 
 logger = logging.getLogger(__name__)
 
@@ -298,57 +403,124 @@ def _extract_text(result: Any) -> str:
 
 
 class _Cache:
-    """Tiny cache keyed by (task, canonical prompt), persisted to disk.
+    """Disk-backed LLM response cache with TTL + atomic writes.
 
-    When ``LLM_CACHE_ENABLED=1`` the cache is loaded from
-    ``output/llm_cache.json`` at startup and written back after each set, so
-    identical structured prompts hit zero tokens across runs.
+    When ``LLM_CACHE_ENABLED=1`` the cache loads from
+    ``config.LLM_CACHE_PATH`` (default ``output/llm_cache.json``) at startup
+    and writes back atomically (write to ``.tmp``, then rename) after each
+    ``set`` so a crash mid-write never leaves a half-written file.
+
+    Entries older than ``LLM_CACHE_TTL_S`` seconds (default 7 days) are
+    considered stale and re-fetched; entries are also evicted FIFO when the
+    on-disk cache exceeds ``LLM_CACHE_CAP`` items (default 512) so a long-lived
+    deployment doesn't grow the file unboundedly.
+
+    Schema on disk::
+
+        {
+          "<sha256>": {"v": <value>, "ts": <unix_epoch_seconds>},
+          ...
+        }
+
+    A legacy cache file (no ``ts`` field) is treated as fresh — keeps the
+    upgrade path zero-effort.
     """
 
-    def __init__(self, cap: int = 512) -> None:
-        self._cap = cap
-        self._path = os.path.join("output", "llm_cache.json")
+    def __init__(self, cap: int = 512, ttl_s: int = 7 * 24 * 3600) -> None:
+        from config import LLM_CACHE_CAP
+        self._cap = LLM_CACHE_CAP if cap is None else int(cap)
+        self._ttl_s = int(os.getenv("LLM_CACHE_TTL_S", str(ttl_s)))
+        # Path and enabled-flag are read lazily on every operation so tests
+        # can monkeypatch env vars without rebuilding the singleton.
         self._data: Dict[str, Any] = {}
         self._load()
 
+    @property
+    def _path(self) -> str:
+        from config import LLM_CACHE_PATH
+        return os.getenv("LLM_CACHE_PATH", LLM_CACHE_PATH)
+
+    def _is_enabled(self) -> bool:
+        """Cache is opt-in via LLM_CACHE_ENABLED; checked lazily each call so
+        tests can monkeypatch the env without reloading the module."""
+        return os.getenv("LLM_CACHE_ENABLED", "").lower() in ("1", "true", "yes", "on")
+
     def _load(self) -> None:
-        if not os.getenv("LLM_CACHE_ENABLED"):
+        if not self._is_enabled():
             return
         try:
             if os.path.exists(self._path):
                 with open(self._path, "r", encoding="utf-8") as fh:
                     data = json.load(fh)
                 self._data = data if isinstance(data, dict) else {}
+                self._evict_stale()
         except Exception:  # noqa: BLE001  # corrupt cache is not fatal
             self._data = {}
 
+    def _evict_stale(self) -> None:
+        """Drop entries older than TTL and trim to cap."""
+        if not self._data:
+            return
+        import time as _t
+        now = _t.time()
+        stale = []
+        for k, v in list(self._data.items()):
+            if isinstance(v, dict) and isinstance(v.get("ts"), (int, float)):
+                if now - float(v["ts"]) > self._ttl_s:
+                    stale.append(k)
+        for k in stale:
+            self._data.pop(k, None)
+        # Cap by FIFO on the original key insertion order.
+        if len(self._data) > self._cap:
+            for oldest in list(self._data)[: len(self._data) - self._cap]:
+                self._data.pop(oldest, None)
+
     def _flush(self) -> None:
+        if not self._is_enabled():
+            return
         try:
-            os.makedirs(os.path.dirname(self._path), exist_ok=True)
-            with open(self._path, "w", encoding="utf-8") as fh:
-                json.dump(self._data, fh)
-        except Exception:  # noqa: BLE001
-            pass
+            os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
+            tmp_path = f"{self._path}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                json.dump(self._data, fh, default=str)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_path, self._path)  # atomic on POSIX & Windows
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("cache flush failed: %s", exc)
 
     def _key(self, task: str, prompt: str, model: str) -> str:
         digest = hashlib.sha256(f"{model}::{task}::{prompt}".encode("utf-8")).hexdigest()
         return digest
 
     def get(self, task: str, prompt: str, model: str) -> Optional[Any]:
-        if not os.getenv("LLM_CACHE_ENABLED"):
+        if not self._is_enabled():
             return None
-        return self._data.get(self._key(task, prompt, model))
+        entry = self._data.get(self._key(task, prompt, model))
+        if entry is None:
+            return None
+        if isinstance(entry, dict) and "v" in entry:
+            return entry["v"]
+        # legacy schema: bare value
+        return entry
 
     def set(self, task: str, prompt: str, model: str, value: Any) -> None:
-        if not os.getenv("LLM_CACHE_ENABLED"):
+        if not self._is_enabled():
             return
+        import time as _t
         key = self._key(task, prompt, model)
-        self._data[key] = value
-        if len(self._data) > self._cap:
-            # naive eviction (drop oldest)
-            for oldest in list(self._data)[: len(self._data) - self._cap]:
-                self._data.pop(oldest, None)
+        self._data[key] = {"v": value, "ts": _t.time()}
+        self._evict_stale()
         self._flush()
+
+    def clear(self) -> None:
+        """Drop everything in memory + on disk; primarily for tests."""
+        self._data = {}
+        try:
+            if os.path.exists(self._path):
+                os.remove(self._path)
+        except OSError:
+            pass
 
 
 _CACHE = _Cache()
@@ -403,10 +575,12 @@ def structured_invoke(
     temperature: float = 0.2,
     chat: Optional[BaseChatModel] = None,
     state: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Optional[BaseModel]:
     """Invoke ``schema`` still passes through with fallbacks; parse structured output.
 
     Returns a validated Pydantic model or ``None`` on total failure.
+    ``metadata`` is forwarded to LangSmith (csv_path, task, status).
     """
     model = chat or build_chat_model(task, temperature=temperature)
     prompt = _messages_to_str(messages)
@@ -419,10 +593,11 @@ def structured_invoke(
             _record(state, {**rec, **cached})
         return cached
 
+    run_metadata = _tracing_metadata(state, {"task": task, **(metadata or {})})
     _pace()
     t0 = time.monotonic()
     try:
-        parsed = _structured_call(model, schema, messages)
+        parsed = _structured_call(model, schema, messages, run_metadata)
     except Exception as exc:  # noqa: BLE001
         logger.warning("structured_invoke(%s) failed: %s", task, exc)
         _record(state, {
@@ -451,6 +626,7 @@ def structured_invoke(
         usage = _usage_stats(model_name, raw, latency)
     _charge(usage)
     _record(state, {"task": task, "model": model_name, "ok": True, **usage})
+    _record_budget_summary(state)
     _CACHE.set(task, prompt, model_name, parsed)
     return parsed
 
@@ -469,23 +645,27 @@ def _supports_tool_calling(model: BaseChatModel) -> bool:
     return True
 
 
-def _structured_call(model: BaseChatModel, schema: type[BaseModel], messages: Any) -> Any:
+def _structured_call(model: BaseChatModel, schema: type[BaseModel], messages: Any,
+                     metadata: Optional[Dict[str, Any]] = None) -> Any:
     """Return a tool-calling structured response, or fall back to JSON-in-prompt."""
+    invoke_cfg = {"metadata": metadata} if metadata else None
     try:
         if not _supports_tool_calling(model):
             raise TypeError("provider does not support json_schema response_format")
         bound = model.with_structured_output(schema)
-        result = bound.invoke(messages)
+        result = bound.invoke(messages, config=invoke_cfg)
         if isinstance(result, schema) or isinstance(result, dict) or isinstance(result, str):
             return result
     except (NotImplementedError, AttributeError, TypeError):
         pass
     except Exception:  # noqa: BLE001
         pass
-    return _json_invoke(model, schema, messages)
+    return _json_invoke(model, schema, messages, metadata=metadata)
 
 
-def _json_invoke(model: BaseChatModel, schema: type[BaseModel], messages: Any, attempts: int = 3) -> dict:
+def _json_invoke(model: BaseChatModel, schema: type[BaseModel], messages: Any,
+                 attempts: int = 3,
+                 metadata: Optional[Dict[str, Any]] = None) -> dict:
     """Prompt the model for a plain JSON object and hand it off for validation.
 
     For structured-output-averse providers (NVIDIA NIM / small local models) we
@@ -501,6 +681,7 @@ def _json_invoke(model: BaseChatModel, schema: type[BaseModel], messages: Any, a
     wrap_field = _list_container_field(schema)
     last_text = ""
     last_msg: Any = None
+    invoke_cfg = {"metadata": metadata} if metadata else None
     for attempt in range(attempts):
         json_prompt = (
             _messages_to_str(messages)
@@ -508,7 +689,7 @@ def _json_invoke(model: BaseChatModel, schema: type[BaseModel], messages: Any, a
             + "Expected shape (field names and types must match exactly):\n"
             + hint
         )
-        reply = model.invoke(json_prompt)
+        reply = model.invoke(json_prompt, config=invoke_cfg)
         last_msg = reply
         text = _extract_text(reply)
         last_text = text
@@ -672,18 +853,25 @@ def plain_invoke(
     temperature: float = 0.2,
     chat: Optional[BaseChatModel] = None,
     state: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Non-structured free-text call; returns the text reply."""
     model = chat or build_chat_model(task, temperature=temperature)
     model_name = _llm_model_name(model)
+    run_metadata = _tracing_metadata(state, {"task": task, **(metadata or {})})
     _pace()
     t0 = time.monotonic()
-    result = model.invoke(messages if isinstance(messages, (list, tuple)) else [{"role": "user", "content": messages}])
+    invoke_cfg = {"metadata": run_metadata} if run_metadata else None
+    result = model.invoke(
+        messages if isinstance(messages, (list, tuple)) else [{"role": "user", "content": messages}],
+        config=invoke_cfg,
+    )
     latency = time.monotonic() - t0
     text = _extract_text(result)
     usage = _usage_stats(model_name, result, latency)
     _charge(usage)
     _record(state, {"task": task, "model": model_name, "ok": True, **usage})
+    _record_budget_summary(state)
     return text
 
 
@@ -693,4 +881,8 @@ __all__ = [
     "structured_invoke",
     "plain_invoke",
     "_price_for",
+    "LANGSMITH_TRACING_ENABLED",
+    "LANGSMITH_PROJECT",
+    "budget_total",
+    "budget_reset",
 ]

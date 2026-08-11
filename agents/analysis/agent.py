@@ -20,7 +20,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List
+
 
 from dotenv import load_dotenv
 
@@ -222,20 +224,75 @@ def _materialize_tasks(parsed: Any) -> List[Dict[str, Any]]:
 
 
 def executor_node(state: AgentState) -> AgentState:
-    """Runs next pending task; writes the canonical ``analysis_results`` list."""
+    """Runs pending tasks; writes the canonical ``analysis_results`` list."""
     plan = state.get("analysis_plan") or []
     profile = state.get("profile", {})
     csv_path = state.get("csv_path", "")
-    pending = next(
-        (t for t in plan
-         if t.get("status") == "pending"
-         and t.get("attempts", 0) < t.get("max_retries", MAX_RETRIES)),
-        None,
-    )
-    if pending is None:
+
+    all_pending = [
+        t for t in plan
+        if t.get("status") == "pending"
+        and t.get("attempts", 0) < t.get("max_retries", MAX_RETRIES)
+    ]
+    if not all_pending:
         logger.info("No pending tasks to execute")
         return state
 
+    # Batch parallel execution for multiple pending deterministic tasks
+    det_tasks = [
+        t for t in all_pending
+        if template_for(t.get("task_name", ""), profile) is not None
+    ]
+    if len(det_tasks) > 1:
+        logger.info("Running %d deterministic tasks in parallel", len(det_tasks))
+        workers = min(4, len(det_tasks))
+        futures = {}
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for t in det_tasks:
+                code = template_for(t.get("task_name", ""), profile)
+                fut = pool.submit(execute_code, code, csv_path)
+                futures[fut] = (t, code)
+
+        for fut in as_completed(futures):
+            task, code = futures[fut]
+            attempt = int(task.get("attempts", 0)) + 1
+            task["attempts"] = attempt
+            try:
+                res = fut.result()
+                log_entry = {
+                    "task_id": task.get("task_id"),
+                    "task_name": task.get("task_name"),
+                    "attempt": attempt,
+                    "code": code[:500],
+                    "success": res["success"],
+                    "stdout": res["stdout"][:500],
+                    "stderr": res["stderr"][:500],
+                    "error": res.get("error"),
+                }
+                state.setdefault("execution_log", []).append(log_entry)
+                if res["success"]:
+                    _record_task_result(state, task, res)
+                    logger.info("Parallel task %s completed", task.get("task_id"))
+                else:
+                    task["last_error"] = res.get("error", "Unknown error")
+                    task["last_stdout"] = res.get("stdout", "")
+                    task["status"] = "failed"
+            except Exception as e:
+                task["last_error"] = str(e)
+                task["status"] = "failed"
+                state.setdefault("execution_log", []).append({
+                    "task_id": task.get("task_id"),
+                    "task_name": task.get("task_name"),
+                    "attempt": attempt,
+                    "code": code[:500],
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": str(e),
+                })
+        return state
+
+    pending = all_pending[0]
     attempt = int(pending.get("attempts", 0)) + 1
     logger.info(
         "Executing task %s: %s (attempt %d)",
@@ -247,6 +304,7 @@ def executor_node(state: AgentState) -> AgentState:
     # Deterministic tasks skip the LLM entirely (saves calls + 429s).
     templated_code = template_for(pending.get("task_name", ""), profile)
     if templated_code is not None:
+
         logger.info(
             "Task %s uses deterministic template (no LLM call)",
             pending.get("task_name"),

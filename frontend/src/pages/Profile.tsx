@@ -44,11 +44,17 @@ const chartColors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(
 
 type SortKey = keyof Pick<ColumnStat, "name" | "type" | "missing" | "distinct">;
 
+import { mockProfile } from "@/data/mock";
+
 export function Profile() {
-  const { profile, mockMode } = useStore();
+  const store = useStore();
+  const profile = store.profile || mockProfile;
+  const mockMode = store.mockMode;
+  const columnStats = profile.columnStats || mockProfile.columnStats;
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
   const [fullscreen, setFullscreen] = useState(false);
+
 
   const donut = useMemo(
     () =>
@@ -63,7 +69,7 @@ export function Profile() {
   );
 
   const rows = useMemo(() => {
-    const filtered = profile.columnStats.filter((c) =>
+    const filtered = (columnStats || []).filter((c) =>
       c.name.toLowerCase().includes(query.trim().toLowerCase()),
     );
     return [...filtered].sort((a, b) => {
@@ -72,7 +78,8 @@ export function Profile() {
       const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
       return sort.dir === "asc" ? cmp : -cmp;
     });
-  }, [profile.columnStats, query, sort]);
+  }, [columnStats, query, sort]);
+
 
   function toggleSort(key: SortKey) {
     setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));

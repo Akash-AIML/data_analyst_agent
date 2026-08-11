@@ -7,12 +7,15 @@ import json
 import uuid
 import subprocess
 import tempfile
+from typing import List, Optional
 
 EXECUTION_TIMEOUT = int(os.getenv("EXECUTION_TIMEOUT", "30"))  # seconds
 MAX_OUTPUT_BYTES = 100_000
-# Hard resource limits for the child process (POSIX only).
-_CPU_LIMIT_S = int(os.getenv("EXEC_CPU_LIMIT_S", str(EXECUTION_TIMEOUT)))  # wall CPU
-_MEM_LIMIT_MB = int(os.getenv("EXEC_MEM_LIMIT_MB", "1536"))  # soft address space
+# Hard resource limits for the child process (POSIX only). CPU and memory are
+# configured independently: a tight CPU cap (default = wall timeout) prevents
+# runaway loops; memory cap (default 1.5 GB) bounds pandas/matplotlib peaks.
+_CPU_LIMIT_S = int(os.getenv("EXEC_CPU_LIMIT_S", str(EXECUTION_TIMEOUT)))
+_MEM_LIMIT_MB = int(os.getenv("EXEC_MEM_LIMIT_MB", "1536"))
 
 SANDBOX_TEMPLATE = """
 import pandas as pd
@@ -50,11 +53,112 @@ print("__AI_RESULT__:" + json.dumps(_captured, default=str))
 
 
 def _sanitize_generated_code(code: str) -> str:
+    """Two-layer sanitizer for LLM-generated analysis snippets.
+
+    Layer 1 (AST, authoritative): refuses any call into a banned builtin
+    (``exec``, ``eval``, ``compile``, ``__import__``, ``breakpoint``) or a
+    banned module (``os``, ``subprocess``, ``shutil``, ``ctypes``, ``socket``).
+    This is the security gate — a clever prompt like
+    ``__import__('os').system('...')`` or
+    ``getattr(__builtins__, 'eval')('...')`` is rejected at parse time, not
+    merely silently stripped.
+
+    Layer 2 (regex, cosmetic): line-strips the most common LLM hallucination
+    patterns (``df = pd.read_csv(...)`` shadowing the injected df, ``open(...)``
+    with arbitrary paths, ``import os`` at the top of the snippet, etc.). This
+    is purely for cleanliness so the child subprocess doesn't get noisy stderr
+    from redundant code; it is NOT a security boundary.
+
+    The function returns the sanitized source when safe, raises
+    ``SecurityError`` when the AST detects a banned construct, and returns
+    the source unchanged (after regex stripping) when the code has a syntax
+    error — so the child subprocess can still surface the real Python error
+    instead of us hiding it.
     """
-    Strip lines that load a file via pd.read_csv / open() since df is already
-    injected by the sandbox template.  Catches common LLM hallucination patterns.
-    Also strip obvious shell/process escapeladders (os.system, subprocess, etc.)
-    """
+    # Layer 1: AST gate (runs on the ORIGINAL source so strip-then-AST can't
+    # hide things the AST should see).
+    try:
+        import ast as _ast
+        tree = _ast.parse(code)
+    except SyntaxError:
+        return _line_strip(code)
+
+    blocked_builtins = {"exec", "eval", "compile", "__import__", "breakpoint",
+                        "getattr", "setattr", "delattr", "globals", "locals",
+                        "vars", "open"}
+    # Calls whose leaf attribute name matches one of these are forbidden when
+    # the chain starts from a blocked module. We match on the LEAF (last
+    # attribute) instead of the root so that ``os.path.basename`` (legitimate)
+    # still works while ``os.system`` (dangerous) is blocked.
+    blocked_module_calls = {
+        "os": {"system", "popen", "exec", "execv", "execve", "spawn", "kill",
+               "remove", "unlink", "rmdir", "removedirs", "rename", "chmod",
+               "chown", "truncate", "putenv", "environ", "fork", "setuid"},
+        "subprocess": {"run", "Popen", "call", "check_call", "check_output",
+                       "getoutput", "getstatusoutput"},
+        "shutil": {"rmtree", "move", "copy", "copytree", "disk_usage"},
+        "ctypes": {"CDLL", "WinDLL", "PyDLL", "addressof", "cast"},
+        "socket": {"socket", "create_connection", "gethostbyname"},
+    }
+
+    def _attr_chain(node: _ast.AST) -> Optional[List[str]]:
+        """Return the dotted attribute chain of ``node`` as a list, or None
+        if the call target isn't a static ``Name.attr1.attr2...`` chain."""
+        names: List[str] = []
+        cur = node
+        while isinstance(cur, _ast.Attribute):
+            names.append(cur.attr)
+            cur = cur.value
+        if isinstance(cur, _ast.Name):
+            names.append(cur.id)
+            names.reverse()
+            return names
+        return None
+
+    # Pass 1: imports — refuse ``from <banned_module> import <anything>`` so
+    # ``from shutil import rmtree`` cannot reintroduce the blocked call.
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.ImportFrom) and node.module in blocked_module_calls:
+            names = [a.name for a in node.names]
+            raise SecurityError(
+                f"importing from module '{node.module}' is not allowed "
+                f"(names: {names})"
+            )
+
+    # Pass 2: walk all calls and check the function target.
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Call):
+            # Direct banned builtin calls (incl. getattr/setattr/eval/exec).
+            if isinstance(node.func, _ast.Name) and node.func.id in blocked_builtins:
+                raise SecurityError(
+                    f"call to built-in '{node.func.id}'() is not allowed"
+                )
+            # Attribute chain into a banned module.
+            chain = _attr_chain(node.func)
+            if chain and len(chain) >= 2 and chain[0] in blocked_module_calls:
+                leaf = chain[-1]
+                if leaf in blocked_module_calls[chain[0]]:
+                    raise SecurityError(
+                        f"calls into module '{chain[0]}' are not allowed "
+                        f"(e.g. {chain[0]}.{leaf})"
+                    )
+        elif isinstance(node, _ast.Subscript):
+            # ``os.environ['X'] = 'y'`` is a mutating attribute access via
+            # __setitem__. Block any subscript whose value chain starts at
+            # a banned module + blocked leaf.
+            chain = _attr_chain(node.value)
+            if chain and len(chain) >= 2 and chain[0] in blocked_module_calls:
+                leaf = chain[-1]
+                if leaf in blocked_module_calls[chain[0]]:
+                    raise SecurityError(
+                        f"subscript on module '{chain[0]}.{leaf}' is not allowed"
+                    )
+
+    # Layer 2: cosmetic regex strip after we've already authorized the source.
+    return _line_strip(code)
+
+
+def _line_strip(code: str) -> str:
     bad_patterns = [
         r"^\s*df\s*=\s*pd\.read_csv\(",
         r"^\s*data\s*=\s*pd\.read_csv\(",
@@ -68,7 +172,7 @@ def _sanitize_generated_code(code: str) -> str:
         r"\beval\(",
         r"\bexec\(",
     ]
-    sanitized = []
+    sanitized: List[str] = []
     for line in code.splitlines():
         if any(re.match(p, line) for p in bad_patterns):
             continue
@@ -76,20 +180,43 @@ def _sanitize_generated_code(code: str) -> str:
     return "\n".join(sanitized)
 
 
+class SecurityError(RuntimeError):
+    """Raised when generated code attempts an operation the sandbox forbids."""
+
+
 def _rlimits():
-    """Set CPU + address-space rlimits for the child before exec (POSIX)."""
+    """Set CPU + address-space rlimits for the child before exec (POSIX).
+
+    Sets RLIMIT_CPU to ``_CPU_LIMIT_S`` (seconds of CPU time; default mirrors
+    the wall-clock timeout so a tight loop gets killed, not just throttled)
+    and RLIMIT_AS to ``_MEM_LIMIT_MB`` bytes of address space so a misbehaving
+    allocation fails fast instead of swapping the host.
+
+    Silently no-ops on platforms where ``resource`` is unavailable (e.g.
+    Windows); the subprocess still gets the wall-clock timeout via
+    ``subprocess.run(timeout=...)``.
+    """
     try:
         import resource
-        resource.setrlimit(resource.RLIMIT_CPU, (_MEM_LIMIT_MB, _MEM_LIMIT_MB))
-    except Exception:
+        soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
+        # Some platforms expose RLIMIT_CPU as (soft, hard) with hard == RLIM_INFINITY;
+        # bound by the smaller of the env-derived cap and the existing hard limit.
+        cap = min(_CPU_LIMIT_S, hard) if hard else _CPU_LIMIT_S
+        resource.setrlimit(resource.RLIMIT_CPU, (cap, hard))
+    except (ImportError, OSError, ValueError):
         pass
     try:
         import resource
         soft, hard = resource.getrlimit(resource.RLIMIT_AS)
         limit = _MEM_LIMIT_MB * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (min(soft, limit) if soft else limit,
-                                                 hard or limit))
-    except Exception:
+        if soft:
+            target = min(soft, limit)
+        else:
+            target = limit
+        if hard:
+            target = min(target, hard)
+        resource.setrlimit(resource.RLIMIT_AS, (target, hard or target))
+    except (ImportError, OSError, ValueError):
         pass
 
 
@@ -128,7 +255,17 @@ def execute_code(code: str, csv_path: str) -> dict:
     script_path = os.path.join(temp_dir, f"analysis_script_{script_id}.py")
 
     # Sanitize: strip pd.read_csv(), os/subprocess escapes the LLM hallucinated
-    code = _sanitize_generated_code(code)
+    try:
+        code = _sanitize_generated_code(code)
+    except SecurityError as exc:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": "",
+            "generated_files": [],
+            "stats": {},
+            "error": f"security policy violation: {exc}",
+        }
 
     # Build the full sandbox script
     full_script = SANDBOX_TEMPLATE.format(

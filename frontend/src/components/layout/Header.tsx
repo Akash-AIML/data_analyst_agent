@@ -15,11 +15,16 @@ export function Header() {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <div className="hidden items-center gap-2 rounded-full border border-border bg-surface/60 py-1.5 pl-3 pr-3.5 text-xs lg:flex">
-          <Database className="size-3.5 text-accent" aria-hidden />
-          <span className="font-medium">{profile.filename}</span>
-          <span className="text-muted-foreground">{profile.rows.toLocaleString()} rows</span>
-        </div>
+        {profile?.filename && (
+          <div className="hidden items-center gap-2 rounded-full border border-border bg-surface/60 py-1.5 pl-3 pr-3.5 text-xs lg:flex">
+            <Database className="size-3.5 text-accent" aria-hidden />
+            <span className="font-medium">{profile.filename}</span>
+            {profile.rows != null && (
+              <span className="text-muted-foreground">{profile.rows.toLocaleString()} rows</span>
+            )}
+          </div>
+        )}
+
 
         <Select value={model} onValueChange={(v) => setModel(v as LlmModel)}>
           <SelectTrigger className="h-9 w-[140px] border-border bg-surface/60 text-xs" aria-label="LLM model">

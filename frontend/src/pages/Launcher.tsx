@@ -13,19 +13,36 @@ import { Badge } from "@/components/ui/badge";
 import { useStore } from "@/lib/store";
 import type { SampleDataset } from "@/types";
 
+import { analyze } from "@/services/api";
+
 export function Launcher() {
-  const { stages, pipelineStatus, runPipeline, mockMode, profile } = useStore();
+  const { stages, pipelineStatus, runPipeline, setAnalysisResults, mockMode, profile } = useStore();
   const [file, setFile] = useState<SelectedFile | null>(null);
   const navigate = useNavigate();
   const running = pipelineStatus === "running";
 
-  function launch(filename: string, rows?: number | null) {
+  async function launch(filename: string, selectedFile?: SelectedFile | null) {
     runPipeline(filename);
     toast.success("Pipeline launched", {
-      description: `${filename}${rows ? ` · ${rows.toLocaleString()} rows` : ""} queued through 5 agent stages.`,
+      description: `${filename}${selectedFile?.rows ? ` · ${selectedFile.rows.toLocaleString()} rows` : ""} queued through 5 agent stages.`,
       action: { label: "View insights", onClick: () => void navigate({ to: "/insights" }) },
     });
+
+    if (selectedFile?.rawFile && !mockMode) {
+      try {
+        const res = await analyze(selectedFile.rawFile);
+        if (res.data) {
+          setAnalysisResults(res.data);
+          toast.success("Analysis complete", {
+            description: `Generated report and insights for ${filename}`,
+          });
+        }
+      } catch (err) {
+        console.error("Analysis execution error:", err);
+      }
+    }
   }
+
 
   return (
     <div className="space-y-10">
@@ -56,7 +73,7 @@ export function Launcher() {
             <Button
               size="lg"
               disabled={running}
-              onClick={() => launch(file?.name ?? profile.filename, file?.rows)}
+              onClick={() => launch(file?.name ?? profile?.filename ?? "sales_transactions.csv", file)}
               className="group relative w-full overflow-hidden bg-[image:var(--gradient-primary)] py-6 text-base font-semibold text-primary-foreground shadow-glow transition-transform hover:scale-[1.01] disabled:opacity-70"
             >
               {running ? (
@@ -88,9 +105,10 @@ export function Launcher() {
         </p>
         <SampleDatasets
           disabled={running}
-          onRun={(d: SampleDataset) => launch(d.filename, d.rows)}
+          onRun={(d: SampleDataset) => launch(d.filename, { name: d.filename, size: 0, rows: d.rows, preview: null })}
         />
       </section>
+
     </div>
   );
 }

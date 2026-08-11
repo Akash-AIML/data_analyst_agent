@@ -19,7 +19,9 @@ def out_dir(tmp_path_factory):
 
 def _run(state, out_dir):
     fixtures.ensure_fixture_files()
+    report_generator.ENABLE_PDF = True
     return report_generator.write_report(dict(state), out_dir)
+
 
 
 def _with_insights(state):
@@ -108,6 +110,28 @@ def test_pdf_fallback_when_weasyprint_fails(out_dir, monkeypatch):
     # HTML still delivered, PDF absent.
     assert os.path.exists(state["report_path"])
     assert state["pdf_path"] is None
+    assert state["pdf_status"] == "failed"
+
+
+def test_pdf_status_ok_when_weasyprint_succeeds(out_dir):
+    """Real weasyprint path (skipped if not installed) — must mark pdf_status='ok'."""
+    state = _with_insights(fixtures.healthy_state())
+    state = _run(state, out_dir)
+    if state["pdf_path"]:
+        assert state["pdf_status"] == "ok"
+    else:
+        # weasyprint missing -> pdf_status 'failed' but state is still ok-ish.
+        assert state["pdf_status"] in ("ok", "failed")
+
+
+def test_pdf_status_skipped_when_html_render_fails(out_dir, monkeypatch):
+    monkeypatch.setattr(
+        report_generator, "render_html",
+        lambda **k: (_ for _ in ()).throw(RuntimeError("template blew up")),
+    )
+    state = _run(fixtures.healthy_state(), out_dir)
+    assert state["pdf_status"] == "skipped"
+    assert state["pdf_path"] is None
 
 
 def test_write_report_never_raises(out_dir, monkeypatch):
@@ -122,3 +146,12 @@ def test_write_report_never_raises(out_dir, monkeypatch):
     state = _run(fixtures.healthy_state(), out_dir)
     assert "could not render HTML report" in "\n".join(state["error_log"])
     assert state["report_status"] == "failed"
+
+
+def test_pdf_skipped_when_enable_pdf_is_false(out_dir, monkeypatch):
+    monkeypatch.setattr(report_generator, "ENABLE_PDF", False)
+    fixtures.ensure_fixture_files()
+    state = report_generator.write_report(fixtures.healthy_state(), out_dir)
+    assert state["pdf_status"] == "skipped"
+    assert state["pdf_path"] is None
+

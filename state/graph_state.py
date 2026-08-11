@@ -42,6 +42,7 @@ class AgentState(TypedDict, total=False):
     recommendations: List[str]
     report_path: str
     pdf_path: Optional[str]
+    pdf_status: str  # "ok" | "skipped" | "failed"
     report_status: str  # "ok" | "degraded" | "failed"
 
     # --- Shared ------------------------------------------------------
@@ -77,6 +78,7 @@ class StateContract(BaseModel):
     recommendations: List[str] = Field(default_factory=list)
     report_path: Optional[str] = None
     pdf_path: Optional[str] = None
+    pdf_status: str = "ok"
     report_status: str = "ok"
     error_log: List[str] = Field(default_factory=list)
     thinking_log: List[str] = Field(default_factory=list)

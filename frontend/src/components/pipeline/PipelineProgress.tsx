@@ -13,9 +13,14 @@ const stageIcons: Record<string, typeof ScanSearch> = {
   report: FileText,
 };
 
-export function PipelineProgress({ stages }: { stages: PipelineStage[] }) {
-  const done = stages.filter((s) => s.status === "completed").length;
-  const overall = Math.round((stages.reduce((acc, s) => acc + s.progress, 0) / (stages.length * 100)) * 100);
+export function PipelineProgress({ stages = [] }: { stages?: PipelineStage[] }) {
+  const list = stages || [];
+  const done = list.filter((s) => s.status === "completed").length;
+  const total = list.length || 1;
+  const overall = list.length > 0
+    ? Math.round((list.reduce((acc, s) => acc + (s.progress || 0), 0) / (total * 100)) * 100)
+    : 0;
+
 
   return (
     <div className="glass rounded-xl p-5 shadow-elegant sm:p-6">
@@ -23,7 +28,7 @@ export function PipelineProgress({ stages }: { stages: PipelineStage[] }) {
         <div>
           <h3 className="text-base font-semibold">Live Pipeline Execution</h3>
           <p className="text-xs text-muted-foreground">
-            {done} of {stages.length} stages complete
+            {done} of {list.length} stages complete
           </p>
         </div>
         <span className="font-mono text-2xl font-semibold tabular-nums text-accent">{overall}%</span>
@@ -31,7 +36,8 @@ export function PipelineProgress({ stages }: { stages: PipelineStage[] }) {
       <Progress value={overall} className="mb-6 h-1.5" />
 
       <ol className="space-y-3">
-        {stages.map((stage, i) => {
+        {list.map((stage, i) => {
+
           const Icon = stageIcons[stage.id] ?? CircleDashed;
           return (
             <motion.li

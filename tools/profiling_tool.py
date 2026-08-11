@@ -3,18 +3,20 @@ import io
 import contextlib
 import pandas as pd
 import sweetviz as sv
-from langchain_core.tools import BaseTool
+from langchain.tools import BaseTool
 from typing import Type
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
+from config import PROFILE_DIR, PROFILE_MAX_FILE_SIZE_MB, PROFILE_PAIRWISE_COL_LIMIT
+
 load_dotenv()
 
-_OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output/profiles")
-_MAX_FILE_SIZE_MB = float(os.getenv("MAX_FILE_SIZE_MB", "50"))
+_OUTPUT_DIR = PROFILE_DIR
+_MAX_FILE_SIZE_MB = PROFILE_MAX_FILE_SIZE_MB
 # sweetviz pairwise correlation cost grows quadratically with column count;
 # disable it for wide datasets to keep profiling fast and memory-light.
-_PAIRWISE_COL_LIMIT = int(os.getenv("PAIRWISE_COL_LIMIT", "15"))
+_PAIRWISE_COL_LIMIT = PROFILE_PAIRWISE_COL_LIMIT
 
 
 class ProfilingToolInput(BaseModel):
@@ -60,18 +62,50 @@ class ProfilingTool(BaseTool):
 
         # --- Size check ---
         file_size_mb = os.path.getsize(csv_path) / (1024 * 1024)
-        if file_size_mb > _MAX_FILE_SIZE_MB:
+        from config import API_MAX_FILE_SIZE_MB
+        if file_size_mb > API_MAX_FILE_SIZE_MB:
             return (
                 f"ERROR: File too large ({file_size_mb:.2f} MB). "
-                f"Maximum supported size is {_MAX_FILE_SIZE_MB:.0f} MB."
+                f"Maximum supported size is {API_MAX_FILE_SIZE_MB:.0f} MB."
             )
 
-        # --- Read CSV with encoding fallback ---
+        # --- Read CSV with chunked downsample support for >50MB files ---
         try:
-            try:
-                df = pd.read_csv(csv_path, encoding="utf-8")
-            except UnicodeDecodeError:
-                df = pd.read_csv(csv_path, encoding="latin-1")
+            if file_size_mb > _MAX_FILE_SIZE_MB:
+                # Streaming read for large files to avoid memory pressure
+                chunks = []
+                total_rows = 0
+                sample_per_chunk = 5000
+                target_total = 50000
+                encoding = "utf-8"
+                try:
+                    reader = pd.read_csv(csv_path, chunksize=20000, encoding="utf-8")
+                    for chunk in reader:
+                        if chunk.empty:
+                            continue
+                        chunk_sample = chunk.sample(min(len(chunk), sample_per_chunk), random_state=42)
+                        chunks.append(chunk_sample)
+                        total_rows += len(chunk_sample)
+                        if total_rows >= target_total:
+                            break
+                except UnicodeDecodeError:
+                    reader = pd.read_csv(csv_path, chunksize=20000, encoding="latin-1")
+                    for chunk in reader:
+                        if chunk.empty:
+                            continue
+                        chunk_sample = chunk.sample(min(len(chunk), sample_per_chunk), random_state=42)
+                        chunks.append(chunk_sample)
+                        total_rows += len(chunk_sample)
+                        if total_rows >= target_total:
+                            break
+                if not chunks:
+                    return "ERROR: CSV file is empty."
+                df = pd.concat(chunks, ignore_index=True)
+            else:
+                try:
+                    df = pd.read_csv(csv_path, encoding="utf-8")
+                except UnicodeDecodeError:
+                    df = pd.read_csv(csv_path, encoding="latin-1")
         except pd.errors.EmptyDataError:
             return "ERROR: CSV file is empty."
         except Exception as e:
@@ -86,6 +120,7 @@ class ProfilingTool(BaseTool):
             df_sample = df
             if len(df) > 50000:
                 df_sample = df.sample(10000, random_state=42)
+
 
             pairwise = "on" if df_sample.shape[1] <= _PAIRWISE_COL_LIMIT else "off"
 

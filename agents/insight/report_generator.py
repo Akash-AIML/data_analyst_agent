@@ -13,6 +13,7 @@ Resilience design (Member 3 devil's-advocate review):
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -20,9 +21,13 @@ from typing import Any, Dict, List, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from agents.insight.validation import validate_results
+from config import REPORT_DIR, ENABLE_PDF
+
+logger = logging.getLogger(__name__)
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
 ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".svg"}
+
 
 _env = Environment(
     loader=FileSystemLoader(TEMPLATE_DIR),
@@ -157,22 +162,39 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
 
     pdf_path = None
     pdf_ok = False
+    pdf_error: Optional[str] = None
+    pdf_status = "skipped"
     if "could not render HTML report" not in "\n".join(errors):
-        try:
-            pdf_path = _render_pdf(html, output_dir, safe_name)
-            pdf_ok = pdf_path is not None
-        except Exception as exc:  # noqa: BLE001 - graceful degradation
-            errors.append(f"PDF generation failed (HTML still delivered): {exc}")
+        if not ENABLE_PDF:
+            pdf_status = "skipped"
+            logger.info("PDF generation disabled via ENABLE_PDF=0 config")
+        else:
+            try:
+                pdf_path = _render_pdf(html, output_dir, safe_name)
+                pdf_ok = pdf_path is not None
+                pdf_status = "ok" if pdf_ok else "failed"
+                if not pdf_ok:
+                    pdf_error = "weasyprint did not produce a file"
+            except Exception as exc:  # noqa: BLE001 - graceful degradation
+                pdf_error = str(exc)
+                pdf_status = "failed"
+                errors.append(f"PDF generation failed (HTML still delivered): {exc}")
 
     state["report_path"] = html_path
     state["pdf_path"] = pdf_path
+    state["pdf_status"] = pdf_status
     state["report_status"] = report_status
     state["error_log"] = (state.get("error_log") or []) + errors
+
 
     if errors:
         state["report_status"] = "degraded"
     if "could not render HTML report" in "\n".join(errors):
         state["report_status"] = "failed"
+
+    if pdf_error and not pdf_ok:
+        # Don't double-log: the error is already in state["error_log"].
+        logger.warning("PDF generation skipped for %s: %s", safe_name, pdf_error)
 
     return state
 

@@ -74,7 +74,14 @@ function MiniChart({ viz, height = 180 }: { viz: Visualization; height?: number 
 }
 
 export function Insights() {
-  const { insights, recommendations, visualizations, profile, mockMode, pipelineDurationMs, lastRunAt } = useStore();
+  const store = useStore();
+  const insights = store.insights || [];
+  const recommendations = store.recommendations || [];
+  const visualizations = store.visualizations || [];
+  const profile = store.profile || {};
+  const mockMode = store.mockMode;
+  const pipelineDurationMs = store.pipelineDurationMs || 0;
+  const lastRunAt = store.lastRunAt || new Date().toISOString();
   const [lightbox, setLightbox] = useState<Visualization | null>(null);
 
   return (
@@ -84,7 +91,7 @@ export function Insights() {
       <PageHeader
         eyebrow="Executive Insights"
         title="Revenue & Data Quality Briefing"
-        description={`Synthesized by the Executive Insight Agent from verified pipeline output for ${profile.filename}.`}
+        description={`Synthesized by the Executive Insight Agent from verified pipeline output for ${profile?.filename ?? "dataset.csv"}.`}
         actions={
           <>
             <Button variant="secondary" onClick={() => toast.success("Download started", { description: "report.html" })}>
@@ -120,6 +127,7 @@ export function Insights() {
           <span className="font-mono text-foreground tabular-nums">{(pipelineDurationMs / 1000).toFixed(1)}s</span>
         </div>
       </div>
+
 
       <section aria-labelledby="insights-h" className="mb-10">
         <h3 id="insights-h" className="mb-4 text-lg font-semibold tracking-tight">

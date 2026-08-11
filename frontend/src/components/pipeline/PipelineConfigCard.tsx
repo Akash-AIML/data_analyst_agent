@@ -29,6 +29,7 @@ function Row({
 
 export function PipelineConfigCard() {
   const { config, setConfig } = useStore();
+  const activeConfig = { maxRetries: 3, temperature: 0.1, timeout: 60, ...(config || {}) };
 
   return (
     <Card className="glass border-border bg-transparent shadow-elegant">
@@ -40,39 +41,40 @@ export function PipelineConfigCard() {
         <CardDescription>Tune retry behaviour, creativity, and execution limits.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <Row label="Max Retries" value={String(config.maxRetries)} hint="Reflector attempts before a node is marked failed.">
+        <Row label="Max Retries" value={String(activeConfig.maxRetries)} hint="Reflector attempts before a node is marked failed.">
           <Slider
-            value={[config.maxRetries]}
+            value={[activeConfig.maxRetries]}
             min={1}
             max={6}
             step={1}
             aria-label="Max retries"
-            onValueChange={(v) => setConfig({ maxRetries: v[0] ?? config.maxRetries })}
+            onValueChange={(v) => setConfig?.({ maxRetries: v[0] ?? activeConfig.maxRetries })}
           />
         </Row>
         <Separator />
-        <Row label="Temperature" value={config.temperature.toFixed(2)} hint="Lower values keep analysis deterministic and grounded.">
+        <Row label="Temperature" value={activeConfig.temperature.toFixed(2)} hint="Lower values keep analysis deterministic and grounded.">
           <Slider
-            value={[config.temperature]}
+            value={[activeConfig.temperature]}
             min={0}
             max={1}
             step={0.05}
             aria-label="Temperature"
-            onValueChange={(v) => setConfig({ temperature: v[0] ?? config.temperature })}
+            onValueChange={(v) => setConfig?.({ temperature: v[0] ?? activeConfig.temperature })}
           />
         </Row>
         <Separator />
-        <Row label="Execution Timeout" value={`${config.timeout}s`} hint="Hard limit for sandboxed Python execution per node.">
+        <Row label="Execution Timeout" value={`${activeConfig.timeout}s`} hint="Hard limit for sandboxed Python execution per node.">
           <Slider
-            value={[config.timeout]}
+            value={[activeConfig.timeout]}
             min={30}
             max={300}
             step={10}
             aria-label="Execution timeout in seconds"
-            onValueChange={(v) => setConfig({ timeout: v[0] ?? config.timeout })}
+            onValueChange={(v) => setConfig?.({ timeout: v[0] ?? activeConfig.timeout })}
           />
         </Row>
       </CardContent>
     </Card>
   );
 }
+

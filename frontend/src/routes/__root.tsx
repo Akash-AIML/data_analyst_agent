@@ -122,18 +122,40 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+import { getHealth } from "@/services/api";
+import { useStore } from "@/lib/store";
+
+function AppHealthInitializer({ children }: { children: ReactNode }) {
+  const setMockMode = useStore((s) => s.setMockMode);
+
+  useEffect(() => {
+    getHealth()
+      .then((res) => {
+        setMockMode(res.mock);
+      })
+      .catch(() => {
+        setMockMode(true);
+      });
+  }, [setMockMode]);
+
+  return <>{children}</>;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
       <AppStoreProvider>
-        <AppShell>
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
-        </AppShell>
-        <Toaster position="top-right" />
+        <AppHealthInitializer>
+          <AppShell>
+            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+            <Outlet />
+          </AppShell>
+          <Toaster position="top-right" />
+        </AppHealthInitializer>
       </AppStoreProvider>
     </QueryClientProvider>
   );
 }
+

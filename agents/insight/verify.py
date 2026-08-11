@@ -124,17 +124,49 @@ def _close(a: float, b: float, tol_abs: float = 1e-4, tol_rel: float = 1e-2) -> 
     return abs(a - b) <= tol_abs + tol_rel * max(abs(a), abs(b))
 
 
+def _resolve_tolerance(override: Optional[float]) -> float:
+    """Read RECOMPUTE_TOLERANCE from env unless explicitly overridden.
+
+    Doing it lazily (not at import time) means tests can monkeypatch the env
+    and the change takes effect for the next call without reloading the module.
+    """
+    if override is not None:
+        return float(override)
+    raw = os.getenv("RECOMPUTE_TOLERANCE", "0.03")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.03
+
+
+def _resolve_abs_tolerance(override: Optional[float]) -> float:
+    """Read RECOMPUTE_ABS_TOLERANCE from env unless explicitly overridden."""
+    if override is not None:
+        return float(override)
+    raw = os.getenv("RECOMPUTE_ABS_TOLERANCE", "1e-4")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 1e-4
+
+
 def verify_by_recompute(
     insights: List[Any],
     csv_path: str,
     profile: Optional[Dict[str, Any]] = None,
-    tolerance: float = 0.03,
+    tolerance: Optional[float] = None,
+    abs_tolerance: Optional[float] = None,
 ) -> Tuple[List[Any], List[str]]:
     """Recompute each insight's ``value`` from the CSV; return (kept, rejected).
 
     ``profile`` is optional contextual hints (column metadata); recompute uses
     the raw CSV directly. An insight whose metric cannot be recomputed is
     rejected (hard-fail) - it must not ship as verified.
+
+    Both ``tolerance`` (relative) and ``abs_tolerance`` (absolute) can be
+    overridden per-call or set via ``RECOMPUTE_TOLERANCE`` / ``RECOMPUTE_ABS_TOLERANCE``
+    in the environment. The default ``_close`` semantics apply:
+    ``abs(a - b) <= abs_tolerance + relative_tolerance * max(|a|, |b|)``.
 
     Input items may be ``Insight`` models or plain dicts; the returned ``kept``
     list preserves those input types.
@@ -144,6 +176,9 @@ def verify_by_recompute(
     rejected: List[str] = []
     if not insights:
         return kept, rejected
+
+    rel_tol = _resolve_tolerance(tolerance)
+    abs_tol = _resolve_abs_tolerance(abs_tolerance)
 
     for raw in insights:
         ins = raw if isinstance(raw, Insight) else Insight.model_validate(raw)
@@ -164,11 +199,12 @@ def verify_by_recompute(
             kept.append(raw)
             continue
 
-        if _close(recomputed, val, tol_rel=tolerance):
+        if _close(recomputed, val, tol_abs=abs_tol, tol_rel=rel_tol):
             kept.append(raw)
         else:
             rejected.append(
-                f"{ins.metric or ins.id}: reported {val} vs recomputed {recomputed:.4f}"
+                f"{ins.metric or ins.id}: reported {val} vs recomputed {recomputed:.4f} "
+                f"(tol_rel={rel_tol}, tol_abs={abs_tol})"
             )
 
     return kept, rejected

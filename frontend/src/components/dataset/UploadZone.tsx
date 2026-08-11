@@ -8,11 +8,13 @@ import { cn } from "@/lib/utils";
 const MAX_BYTES = 50 * 1024 * 1024;
 
 export interface SelectedFile {
+  rawFile?: File;
   name: string;
   size: number;
   rows: number | null;
   preview: { headers: string[]; rows: string[][] } | null;
 }
+
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -52,11 +54,13 @@ export function UploadZone({
         const rows = lines.slice(1, 6).map((l) => l.split(","));
         setParsing(false);
         onSelect({
+          rawFile: f,
           name: f.name,
           size: f.size,
           rows: Math.max(lines.length - 1, 0),
           preview: headers.length ? { headers, rows } : null,
         });
+
         toast.success("CSV ready", { description: `${f.name} loaded successfully.` });
       };
       reader.onerror = () => {

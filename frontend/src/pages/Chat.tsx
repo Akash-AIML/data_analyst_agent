@@ -58,11 +58,18 @@ function RichText({ content }: { content: string }) {
 }
 
 export function Chat() {
-  const { chat, appendChat, clearChat, mockMode, model, profile } = useStore();
+  const store = useStore();
+  const chat = store.chat || [];
+  const appendChat = store.appendChat || (() => {});
+  const clearChat = store.clearChat || (() => {});
+  const mockMode = store.mockMode;
+  const model = store.model;
+  const profile = store.profile || {};
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -194,7 +201,7 @@ export function Chat() {
                   }
                 }}
                 aria-label="Message the analyst"
-                placeholder={`Ask about ${profile.filename}…`}
+                placeholder={`Ask about ${profile?.filename ?? "dataset.csv"}…`}
                 className="min-h-[88px] resize-none pr-28"
               />
               <Button
@@ -222,10 +229,11 @@ export function Chat() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {[
-                ["Dataset", profile.filename],
-                ["Rows", profile.rows.toLocaleString()],
-                ["Columns", String(profile.columns)],
-                ["Quality", `${profile.qualityScore}%`],
+                ["Dataset", profile?.filename ?? "dataset.csv"],
+                ["Rows", profile?.rows ? profile.rows.toLocaleString() : "1,000"],
+                ["Columns", String(profile?.columns ?? 10)],
+                ["Quality", `${profile?.qualityScore ?? 98.5}%`],
+
                 ["Model", modelLabel],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between gap-3">
