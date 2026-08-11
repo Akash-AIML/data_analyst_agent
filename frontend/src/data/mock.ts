@@ -15,31 +15,32 @@ export const sampleDatasets: SampleDataset[] = [
   {
     id: "sales",
     name: "Sales Transactions",
-    filename: "sales_transactions.csv",
+    filename: "sample_sales.csv",
     description: "Regional transaction and revenue analysis.",
-    rows: 1000,
+    rows: 30,
     columns: 10,
     icon: "sales",
   },
   {
     id: "hiring",
     name: "Hiring Bias Data",
-    filename: "hiring_bias.csv",
+    filename: "sample_hiring.csv",
     description: "Candidate demographics and hiring outcome analysis.",
-    rows: 2400,
-    columns: 14,
+    rows: 10,
+    columns: 9,
     icon: "hiring",
   },
   {
     id: "churn",
     name: "E-commerce Churn",
-    filename: "ecommerce_churn.csv",
+    filename: "sample_churn.csv",
     description: "Customer behavior and churn prediction analysis.",
-    rows: 5200,
-    columns: 18,
+    rows: 10,
+    columns: 9,
     icon: "churn",
   },
 ];
+
 
 export const mockProfile: DatasetProfile = {
   filename: "sales_transactions.csv",
