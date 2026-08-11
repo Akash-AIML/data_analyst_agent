@@ -16,32 +16,56 @@ import type { SampleDataset } from "@/types";
 import { analyze } from "@/services/api";
 
 export function Launcher() {
-  const { stages, pipelineStatus, runPipeline, setAnalysisResults, mockMode, profile } = useStore();
+  const { stages, pipelineStatus, runPipeline, finishPipeline, setAnalysisResults, mockMode, profile } = useStore();
   const [file, setFile] = useState<SelectedFile | null>(null);
   const navigate = useNavigate();
   const running = pipelineStatus === "running";
 
   async function launch(filename: string, selectedFile?: SelectedFile | null) {
     runPipeline(filename);
-    toast.success("Pipeline launched", {
-      description: `${filename}${selectedFile?.rows ? ` · ${selectedFile.rows.toLocaleString()} rows` : ""} queued through 5 agent stages.`,
-      action: { label: "View insights", onClick: () => void navigate({ to: "/insights" }) },
+    toast.info("Pipeline launched", {
+      description: `Ingesting ${filename} through multi-agent analysis pipeline…`,
     });
 
-    if (selectedFile?.rawFile && !mockMode) {
+    let targetFile: File | null = selectedFile?.rawFile ?? null;
+
+    if (!targetFile && !mockMode) {
       try {
-        const res = await analyze(selectedFile.rawFile);
-        if (res.data) {
-          setAnalysisResults(res.data);
-          toast.success("Analysis complete", {
-            description: `Generated report and insights for ${filename}`,
-          });
+        const resp = await fetch(`/data/${filename}`);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          targetFile = new File([blob], filename, { type: "text/csv" });
         }
       } catch (err) {
-        console.error("Analysis execution error:", err);
+        console.warn("Could not fetch sample CSV file:", err);
       }
     }
+
+    if (targetFile && !mockMode) {
+      try {
+        const res = await analyze(targetFile);
+        if (res.data) {
+          setAnalysisResults(res.data);
+          finishPipeline();
+          toast.success("Analysis complete!", {
+            description: `Generated report and insights for ${filename}`,
+            action: { label: "View insights", onClick: () => void navigate({ to: "/insights" }) },
+          });
+        } else {
+          finishPipeline();
+        }
+      } catch (err) {
+        console.error("Backend pipeline execution failed:", err);
+        finishPipeline();
+        toast.error("Analysis execution failed", {
+          description: err instanceof Error ? err.message : "Pipeline backend error",
+        });
+      }
+    } else {
+      finishPipeline();
+    }
   }
+
 
 
   return (

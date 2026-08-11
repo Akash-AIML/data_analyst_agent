@@ -1,0 +1,11 @@
+Customer_ID,Tenure_Months,Monthly_Charges,Total_Charges,Contract_Type,Payment_Method,Paperless_Billing,Churn,Tech_Support
+CUST-101,12,65.5,786.0,Month-to-month,Electronic check,Yes,Yes,No
+CUST-102,48,89.9,4315.2,Two year,Bank transfer,No,No,Yes
+CUST-103,3,20.1,60.3,Month-to-month,Mailed check,Yes,Yes,No
+CUST-104,24,105.4,2529.6,One year,Credit card,Yes,No,Yes
+CUST-105,36,78.2,2815.2,One year,Bank transfer,No,No,Yes
+CUST-106,1,55.0,55.0,Month-to-month,Electronic check,Yes,Yes,No
+CUST-107,60,110.2,6612.0,Two year,Credit card,Yes,No,Yes
+CUST-108,18,45.3,815.4,Month-to-month,Mailed check,No,No,No
+CUST-109,72,115.8,8337.6,Two year,Bank transfer,Yes,No,Yes
+CUST-110,9,95.1,855.9,Month-to-month,Electronic check,Yes,Yes,No

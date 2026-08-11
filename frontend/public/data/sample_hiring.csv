@@ -1,0 +1,11 @@
+Candidate_ID,Department,Experience_Years,Education,Interview_Score,Coding_Score,Outcome,Gender,Age
+CAND-001,Engineering,5,Master,88,92,Hired,Female,29
+CAND-002,Marketing,2,Bachelor,75,60,Rejected,Male,24
+CAND-003,Engineering,8,PhD,95,98,Hired,Male,34
+CAND-004,Sales,4,Bachelor,82,70,Hired,Female,27
+CAND-005,Engineering,1,Bachelor,65,72,Rejected,Male,22
+CAND-006,Design,3,Master,90,85,Hired,Female,26
+CAND-007,Engineering,6,Bachelor,84,89,Hired,Male,31
+CAND-008,Sales,2,Bachelor,60,55,Rejected,Male,25
+CAND-009,Marketing,7,Master,91,80,Hired,Female,33
+CAND-010,Engineering,4,Master,86,88,Hired,Male,28
