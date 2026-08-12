@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libcairo2 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-2.0-0 \
     libffi-dev \
     libssl-dev \
     fonts-liberation \
@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libcairo2 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-2.0-0 \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
@@ -51,7 +51,6 @@ COPY api/          ./api/
 COPY state/        ./state/
 COPY tools/        ./tools/
 COPY agent/        ./agent/
-COPY agents/       ./agents/
 COPY config.py     ./config.py
 COPY llm.py        ./llm.py
 COPY graph.py      ./graph.py
