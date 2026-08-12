@@ -1,0 +1,168 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "appName": {
+      "type": "string",
+      "defaultValue": "ai-data-analyst-api",
+      "metadata": { "description": "Name of the Container App" }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    },
+    "containerImage": {
+      "type": "string",
+      "metadata": { "description": "Full ACR image URI, e.g. aidataanalystacr.azurecr.io/ai-data-analyst-api:latest" }
+    },
+    "acrServer": {
+      "type": "string",
+      "metadata": { "description": "ACR login server, e.g. aidataanalystacr.azurecr.io" }
+    },
+    "acrUsername": {
+      "type": "string"
+    },
+    "acrPassword": {
+      "type": "securestring"
+    },
+    "openaiApiKey": {
+      "type": "securestring",
+      "metadata": { "description": "OpenAI-compatible API key" }
+    },
+    "openaiBaseUrl": {
+      "type": "string",
+      "defaultValue": "https://api.openai.com/v1"
+    },
+    "model": {
+      "type": "string",
+      "defaultValue": "gpt-4.1-nano"
+    },
+    "groqApiKey": {
+      "type": "securestring",
+      "defaultValue": ""
+    },
+    "allowedOrigins": {
+      "type": "string",
+      "defaultValue": "*",
+      "metadata": { "description": "CORS allowed origins, e.g. https://your-app.vercel.app" }
+    }
+  },
+  "variables": {
+    "envName": "[concat(parameters('appName'), '-env')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('envName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "azure-monitor"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('appName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]"
+      ],
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "configuration": {
+          "ingress": {
+            "external": true,
+            "targetPort": 8000,
+            "transport": "http",
+            "allowInsecure": false,
+            "corsPolicy": {
+              "allowedOrigins": ["[parameters('allowedOrigins')]"],
+              "allowedMethods": ["*"],
+              "allowedHeaders": ["*"],
+              "allowCredentials": false
+            }
+          },
+          "registries": [
+            {
+              "server": "[parameters('acrServer')]",
+              "username": "[parameters('acrUsername')]",
+              "passwordSecretRef": "acr-password"
+            }
+          ],
+          "secrets": [
+            { "name": "acr-password",   "value": "[parameters('acrPassword')]" },
+            { "name": "openai-api-key", "value": "[parameters('openaiApiKey')]" },
+            { "name": "groq-api-key",   "value": "[parameters('groqApiKey')]" }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "[parameters('appName')]",
+              "image": "[parameters('containerImage')]",
+              "resources": {
+                "cpu": 1.0,
+                "memory": "2Gi"
+              },
+              "env": [
+                { "name": "OPENAI_API_KEY",    "secretRef": "openai-api-key" },
+                { "name": "GROQ_API_KEY",      "secretRef": "groq-api-key" },
+                { "name": "OPENAI_BASE_URL",   "value": "[parameters('openaiBaseUrl')]" },
+                { "name": "MODEL",             "value": "[parameters('model')]" },
+                { "name": "ALLOWED_ORIGINS",   "value": "[parameters('allowedOrigins')]" },
+                { "name": "LLM_BUDGET_US",     "value": "5.0" },
+                { "name": "LLM_MIN_INTERVAL_S","value": "0.5" },
+                { "name": "ENABLE_PDF",        "value": "0" },
+                { "name": "OUTPUT_ROOT",       "value": "/app/output" },
+                { "name": "UPLOAD_DIR",        "value": "/app/uploads" }
+              ],
+              "probes": [
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000
+                  },
+                  "initialDelaySeconds": 10,
+                  "periodSeconds": 30
+                },
+                {
+                  "type": "Readiness",
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 0,
+            "maxReplicas": 3,
+            "rules": [
+              {
+                "name": "http-scaling",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "10"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "apiUrl": {
+      "type": "string",
+      "value": "[concat('https://', reference(resourceId('Microsoft.App/containerApps', parameters('appName'))).configuration.ingress.fqdn)]"
+    }
+  }
+}

@@ -1,0 +1,56 @@
+# Docker ignore — keeps the image lean and secrets out
+# -------------------------------------------------------
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+venv312/
+.venv/
+env/
+ENV/
+
+# Test / dev artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+tests/
+
+# Local secrets — NEVER bake these into the image
+.env
+.env.*
+!.env.example
+
+# Frontend (built separately for Vercel — not needed in backend image)
+frontend/
+node_modules/
+
+# Generated output (mounted as a volume in production)
+output/
+uploads/
+
+# Git
+.git/
+.github/
+.gitignore
+
+# Editor / OS
+.idea/
+.vscode/
+*.DS_Store
+*.swp
+Thumbs.db
+
+# Docs
+docs/
+*.md
