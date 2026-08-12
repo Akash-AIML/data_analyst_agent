@@ -19,6 +19,7 @@ export interface AnalyzeResponse {
   execution_log?: ExecutionLog[];
   report_filename?: string;
   report_url?: string;
+  pdf_report_url?: string;
 }
 
 async function request<T>(path: string, init?: RequestInit, timeoutMs: number = TIMEOUT_MS): Promise<T> {
@@ -118,7 +119,8 @@ export async function downloadReport(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120_000); // 2 min cap
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const fullUrl = url.startsWith("http") ? url : `${API_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
+    const res = await fetch(fullUrl, { signal: controller.signal });
     clearTimeout(timer);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 

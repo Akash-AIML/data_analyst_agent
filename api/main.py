@@ -249,6 +249,9 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
     # report_filename = insight report (for backwards compat); profile_report_filename = sweetviz
     report_filename = insight_report_filename or profile_report_filename
 
+    pdf_report_abs = result_state.get("pdf_path", "")
+    pdf_report_filename = os.path.basename(pdf_report_abs) if pdf_report_abs else None
+
     return JSONResponse(
         content={
             "status": "completed",
@@ -258,6 +261,7 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
             "execution_log": result_state.get("execution_log", []),
             "report_filename": report_filename,
             "report_url": f"/report/{report_filename}" if report_filename else None,
+            "pdf_report_url": f"/report/{pdf_report_filename}" if pdf_report_filename else None,
             "profile_report_filename": profile_report_filename,
             "profile_report_url": f"/report/{profile_report_filename}" if profile_report_filename else None,
         }

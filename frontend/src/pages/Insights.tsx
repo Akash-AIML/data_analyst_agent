@@ -84,6 +84,7 @@ export function Insights() {
   const pipelineDurationMs = store.pipelineDurationMs || 0;
   const lastRunAt = store.lastRunAt || new Date().toISOString();
   const reportUrl = store.reportUrl;
+  const pdfReportUrl = store.pdfReportUrl;
   const profileFilename = profile.filename || "dataset";
   const [lightbox, setLightbox] = useState<Visualization | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -132,12 +133,18 @@ export function Insights() {
             </Button>
             <Button
               className="bg-[image:var(--gradient-primary)] text-primary-foreground shadow-glow"
-              disabled={true}
-              title="PDF export is disabled — set ENABLE_PDF=1 in .env to enable"
-              onClick={() => toast.info("PDF export disabled", { description: "Set ENABLE_PDF=1 in .env to enable PDF generation." })}
+              disabled={!pdfReportUrl || downloading}
+              title={pdfReportUrl ? "Download PDF Report" : "PDF export is disabled — set ENABLE_PDF=1 in .env to enable"}
+              onClick={() => {
+                if (pdfReportUrl) void handleDownload(pdfReportUrl, "pdf");
+                else toast.info("PDF export disabled", { description: "Set ENABLE_PDF=1 in .env to enable PDF generation." });
+              }}
             >
-              <Download className="size-4" aria-hidden />
-              PDF Report
+              {downloading && pdfReportUrl ? (
+                <><span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />Downloading…</>
+              ) : (
+                <><Download className="size-4" aria-hidden />PDF Report</>
+              )}
             </Button>
           </>
         }

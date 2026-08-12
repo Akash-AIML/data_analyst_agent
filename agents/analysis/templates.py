@@ -52,7 +52,7 @@ _CATEGORY_FREQUENCY = {
     "value": "top value counts for categorical columns",
     "code": """
 import pandas as pd
-cats = df.select_dtypes(include=["object", "category"]).columns.tolist()
+cats = df.select_dtypes(include=["object", "category", "str"]).columns.tolist()
 RESULT_JSON = {}
 for _c in cats:
     _vc = df[_c].value_counts(dropna=False)
