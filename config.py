@@ -113,8 +113,9 @@ RECOMPUTE_ABS_TOLERANCE: float = _float("RECOMPUTE_ABS_TOLERANCE", 1e-4)
 PROFILE_MAX_FILE_SIZE_MB: float = _float("MAX_FILE_SIZE_MB", 50.0)
 PROFILE_PAIRWISE_COL_LIMIT: int = _int("PAIRWISE_COL_LIMIT", 15)
 
-# Reporting tunables.
-ENABLE_PDF: bool = _bool("ENABLE_PDF", True)
+# Reporting tunables. PDF generation is disabled by default; the HTML report
+# (the Sweetviz profile report) is the primary deliverable.
+ENABLE_PDF: bool = _bool("ENABLE_PDF", False)
 
 # API tunables.
 API_MAX_FILE_SIZE_MB: float = _float("MAX_FILE_SIZE_MB", 200.0)

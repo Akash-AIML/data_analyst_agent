@@ -145,6 +145,14 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
     profile_report_path = state.get("profile_report_path")
     profile_report_filename = os.path.basename(profile_report_path) if profile_report_path else None
 
+    # The Sweetviz profile report is the primary HTML deliverable. When it
+    # exists, expose it as ``report_path`` so both the API and the frontend
+    # serve/download the rich interactive Sweetviz report directly instead of
+    # the (weaker) summary page below.
+    primary_html_path = html_path
+    if profile_report_path and os.path.isfile(profile_report_path):
+        primary_html_path = profile_report_path
+
     try:
         html = render_html(
             title=f"Data Analysis Report — {safe_name}",
@@ -189,7 +197,11 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
                 pdf_status = "failed"
                 errors.append(f"PDF generation failed (HTML still delivered): {exc}")
 
-    state["report_path"] = html_path
+    # The primary HTML deliverable is the Sweetviz profile report when it
+    # exists (see ``primary_html_path`` above); otherwise fall back to the
+    # summary page written just above.
+    state["report_path"] = primary_html_path
+    state["summary_report_path"] = html_path if primary_html_path != html_path else None
     state["pdf_path"] = pdf_path
     state["pdf_status"] = pdf_status
     state["report_status"] = report_status

@@ -42,6 +42,7 @@ class AgentState(TypedDict, total=False):
     insights: List[Dict[str, Any]]
     recommendations: List[Dict[str, Any]]
     report_path: str
+    summary_report_path: Optional[str]  # custom summary page (secondary)
     pdf_path: Optional[str]
     pdf_status: str  # "ok" | "skipped" | "failed"
     report_status: str  # "ok" | "degraded" | "failed"
@@ -78,6 +79,7 @@ class StateContract(BaseModel):
     insights: List[Dict[str, Any]] = Field(default_factory=list)
     recommendations: List[Dict[str, Any]] = Field(default_factory=list)
     report_path: Optional[str] = None
+    summary_report_path: Optional[str] = None
     pdf_path: Optional[str] = None
     pdf_status: str = "ok"
     report_status: str = "ok"

@@ -19,7 +19,6 @@ export interface AnalyzeResponse {
   execution_log?: ExecutionLog[];
   report_filename?: string;
   report_url?: string;
-  pdf_report_url?: string;
 }
 
 async function request<T>(path: string, init?: RequestInit, timeoutMs: number = TIMEOUT_MS): Promise<T> {

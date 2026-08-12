@@ -241,16 +241,16 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
 
     # --- Build response ---
     profile_report_abs = result_state.get("profile_report_path", "")
-    insight_report_abs = result_state.get("report_path", "")
+    # report_path now points at the Sweetviz profile report when available;
+    # fall back to the summary report for backwards compat.
+    insight_report_abs = result_state.get("report_path", "") or result_state.get("summary_report_path", "")
 
     profile_report_filename = os.path.basename(profile_report_abs) if profile_report_abs else None
     insight_report_filename = os.path.basename(insight_report_abs) if insight_report_abs else None
 
-    # report_filename = insight report (for backwards compat); profile_report_filename = sweetviz
-    report_filename = insight_report_filename or profile_report_filename
-
-    pdf_report_abs = result_state.get("pdf_path", "")
-    pdf_report_filename = os.path.basename(pdf_report_abs) if pdf_report_abs else None
+    # report_filename = the primary HTML deliverable (Sweetviz report); the
+    # summary report is still served for backwards compat if present.
+    report_filename = profile_report_filename or insight_report_filename
 
     return JSONResponse(
         content={
@@ -261,9 +261,10 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
             "execution_log": result_state.get("execution_log", []),
             "report_filename": report_filename,
             "report_url": f"/report/{report_filename}" if report_filename else None,
-            "pdf_report_url": f"/report/{pdf_report_filename}" if pdf_report_filename else None,
             "profile_report_filename": profile_report_filename,
             "profile_report_url": f"/report/{profile_report_filename}" if profile_report_filename else None,
+            "summary_report_filename": insight_report_filename,
+            "summary_report_url": f"/report/{insight_report_filename}" if insight_report_filename else None,
         }
     )
 

@@ -54,9 +54,8 @@ export interface AppState {
   visualizations: Visualization[];
   executionLogs?: ExecutionLog[];
   pipelineDurationMs: number;
-  reportUrl?: string;        // HTML insight report URL
+  reportUrl?: string;        // Sweetviz profile report URL (primary HTML deliverable)
   profileReportUrl?: string; // Sweetviz profile report URL
-  pdfReportUrl?: string;
   lastRunAt: string;
   chat: ChatMessage[];
   health: ServiceHealth[];
@@ -89,7 +88,6 @@ export const useStore = create<AppState>()(
       pipelineDurationMs: 21540,
       reportUrl: undefined,
       profileReportUrl: undefined,
-      pdfReportUrl: undefined,
       lastRunAt: new Date().toISOString(),
       chat: mockChat,
       health: mockHealth,
@@ -300,8 +298,6 @@ export const useStore = create<AppState>()(
         const profileReportFilename = data.profile_report_filename || data.report_filename;
         const reportUrl = reportFilename ? `${API_BASE}/report/${encodeURIComponent(reportFilename)}` : undefined;
         const profileReportUrl = profileReportFilename ? `${API_BASE}/report/${encodeURIComponent(profileReportFilename)}` : undefined;
-        const pdfReportFilename = data.pdf_report_filename || (data.pdf_report_url ? data.pdf_report_url.split('/').pop() : undefined);
-        const pdfReportUrl = pdfReportFilename ? `${API_BASE}/report/${encodeURIComponent(pdfReportFilename)}` : undefined;
 
         set(() => ({
           profile: {
@@ -327,7 +323,6 @@ export const useStore = create<AppState>()(
           executionLogs: executionLogs.length ? executionLogs : undefined,
           reportUrl,
           profileReportUrl,
-          pdfReportUrl,
           chat: [
             {
               id: `c-${Date.now()}`,
