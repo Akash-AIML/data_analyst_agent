@@ -79,6 +79,7 @@ def render_html(
     status: str,
     generated_at: str,
     pdf_generated: bool = False,
+    profile_report_filename: Optional[str] = None,
 ) -> str:
     tpl = _env.get_template("report_template.html")
     return tpl.render(
@@ -96,6 +97,7 @@ def render_html(
         status=status,
         generated_at=generated_at,
         pdf_generated=pdf_generated,
+        profile_report_filename=profile_report_filename,
     )
 
 
@@ -137,6 +139,9 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
     safe_name = os.path.splitext(os.path.basename(state.get("csv_path") or "report"))[0] or "report"
     html_path = os.path.join(output_dir, f"{safe_name}_report.html")
 
+    profile_report_path = state.get("profile_report_path")
+    profile_report_filename = os.path.basename(profile_report_path) if profile_report_path else None
+
     try:
         html = render_html(
             title=f"Data Analysis Report — {safe_name}",
@@ -152,6 +157,7 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
             report_status=report_status,
             status=state.get("status") or "in_progress",
             generated_at=generated_at,
+            profile_report_filename=profile_report_filename,
         )
         with open(html_path, "w", encoding="utf-8") as fh:
             fh.write(html)
