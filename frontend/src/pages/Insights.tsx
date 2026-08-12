@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Separator } from "@/components/ui/separator";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { downloadReport } from "@/services/api";
 import type { Severity, Visualization } from "@/types";
 
 const severityTone: Record<Severity, string> = {
@@ -82,7 +83,31 @@ export function Insights() {
   const mockMode = store.mockMode;
   const pipelineDurationMs = store.pipelineDurationMs || 0;
   const lastRunAt = store.lastRunAt || new Date().toISOString();
+  const reportUrl = store.reportUrl;
+  const profileFilename = profile.filename || "dataset";
   const [lightbox, setLightbox] = useState<Visualization | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload(url: string | undefined, ext: string) {
+    if (!url) {
+      toast.error("No report available — run a pipeline first.");
+      return;
+    }
+    setDownloading(true);
+    try {
+      await downloadReport(
+        url,
+        `${profileFilename.replace(/\.csv$/i, "")}_report.${ext}`,
+      );
+      toast.success(`${ext.toUpperCase()} report downloaded!`);
+    } catch (err) {
+      toast.error("Download failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div>
@@ -94,13 +119,22 @@ export function Insights() {
         description={`Synthesized by the Executive Insight Agent from verified pipeline output for ${profile?.filename ?? "dataset.csv"}.`}
         actions={
           <>
-            <Button variant="secondary" onClick={() => toast.success("Download started", { description: "report.html" })}>
-              <FileText className="size-4" aria-hidden />
-              HTML Report
+            <Button
+              variant="secondary"
+              disabled={!reportUrl || downloading}
+              onClick={() => void handleDownload(reportUrl, "html")}
+            >
+              {downloading ? (
+                <><span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />Downloading…</>
+              ) : (
+                <><FileText className="size-4" aria-hidden />HTML Report</>
+              )}
             </Button>
             <Button
               className="bg-[image:var(--gradient-primary)] text-primary-foreground shadow-glow"
-              onClick={() => toast.success("Download started", { description: "report.pdf" })}
+              disabled={true}
+              title="PDF export is disabled — set ENABLE_PDF=1 in .env to enable"
+              onClick={() => toast.info("PDF export disabled", { description: "Set ENABLE_PDF=1 in .env to enable PDF generation." })}
             >
               <Download className="size-4" aria-hidden />
               PDF Report
@@ -108,6 +142,7 @@ export function Insights() {
           </>
         }
       />
+
 
       <div className="glass mb-8 flex flex-wrap items-center gap-x-8 gap-y-3 rounded-xl px-5 py-4 shadow-elegant">
         <div className="flex items-center gap-2">

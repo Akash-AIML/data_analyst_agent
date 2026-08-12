@@ -103,3 +103,55 @@ export async function checkReportAvailable(filename: string): Promise<boolean> {
   }
 }
 
+/**
+ * Fetch a report URL as a blob and trigger a browser download.
+ *
+ * Using `<a href="crossOriginUrl" download>` is silently ignored by browsers
+ * (the `download` attribute only works for same-origin URLs). Fetching the
+ * content as a blob and creating a temporary blob URL bypasses that restriction.
+ */
+export async function downloadReport(
+  url: string,
+  filename: string,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120_000); // 2 min cap
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+
+    // Stream-read with progress if Content-Length is available
+    const total = Number(res.headers.get("Content-Length") || 0);
+    const reader = res.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (total > 0 && onProgress) onProgress(Math.round((received / total) * 100));
+      }
+    } else {
+      const buf = await res.arrayBuffer();
+      chunks.push(new Uint8Array(buf));
+    }
+
+    const mimeType = res.headers.get("Content-Type") || "text/html";
+    const blob = new Blob(chunks, { type: mimeType });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Revoke after a tick so the browser has time to start the download
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+  } finally {
+    clearTimeout(timer);
+  }
+}

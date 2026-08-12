@@ -227,8 +227,14 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
         )
 
     # --- Build response ---
-    report_abs = result_state.get("profile_report_path") or result_state.get("report_path", "")
-    report_filename = os.path.basename(report_abs) if report_abs else None
+    profile_report_abs = result_state.get("profile_report_path", "")
+    insight_report_abs = result_state.get("report_path", "")
+
+    profile_report_filename = os.path.basename(profile_report_abs) if profile_report_abs else None
+    insight_report_filename = os.path.basename(insight_report_abs) if insight_report_abs else None
+
+    # report_filename = insight report (for backwards compat); profile_report_filename = sweetviz
+    report_filename = insight_report_filename or profile_report_filename
 
     return JSONResponse(
         content={
@@ -239,6 +245,8 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
             "execution_log": result_state.get("execution_log", []),
             "report_filename": report_filename,
             "report_url": f"/report/{report_filename}" if report_filename else None,
+            "profile_report_filename": profile_report_filename,
+            "profile_report_url": f"/report/{profile_report_filename}" if profile_report_filename else None,
         }
     )
 
@@ -277,25 +285,126 @@ def get_config():
 
 @app.post("/chat", tags=["chat"], dependencies=[Depends(verify_token)])
 def chat_endpoint(payload: dict = Body(...)):
-
     """
     Report and insight grounded Q&A endpoint.
+
+    Expects payload:
+      {
+        "message": "<user question>",
+        "context": {                 # optional — sent by the UI
+          "filename": "...",
+          "rows": 1000,
+          "columns": 10,
+          "quality_score": 98.5,
+          "columns_list": ["col1", ...],
+          "insights": [{"title": ..., "explanation": ..., "evidence": ...}, ...],
+          "recommendations": [{"action": ...}, ...]
+        }
+      }
     """
-    message = payload.get("message", "")
+    message = payload.get("message", "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="Missing message in request payload.")
 
-    # Grounded response generation stub / integration point with InsightAgent QA
+    ctx = payload.get("context") or {}
+    filename = ctx.get("filename", "the uploaded dataset")
+    rows = ctx.get("rows", "unknown")
+    columns = ctx.get("columns", "unknown")
+    quality = ctx.get("quality_score", "unknown")
+    cols_list = ctx.get("columns_list") or []
+    insights = ctx.get("insights") or []
+    recommendations = ctx.get("recommendations") or []
+
+    # Build grounding block
+    grounding_lines = [
+        f"Dataset: {filename}",
+        f"Rows: {rows:,}" if isinstance(rows, int) else f"Rows: {rows}",
+        f"Columns: {columns}",
+        f"Quality score: {quality}%",
+    ]
+    if cols_list:
+        grounding_lines.append(f"Features: {', '.join(str(c) for c in cols_list)}")
+    if insights:
+        grounding_lines.append("Key insights from the pipeline:")
+        for i, ins in enumerate(insights[:8], 1):
+            title = ins.get("title") or ins.get("explanation") or ""
+            explanation = ins.get("explanation") or ins.get("evidence") or ""
+            evidence = ins.get("evidence") or ""
+            sev = ins.get("severity") or "info"
+            conf = ins.get("confidence") or ""
+            grounding_lines.append(
+                f"  I-{i:02d} [{sev.upper()}] {title}"
+                + (f" — {explanation}" if explanation and explanation != title else "")
+                + (f" | Evidence: {evidence}" if evidence and evidence != explanation else "")
+                + (f" (confidence: {conf}%)" if conf else "")
+            )
+    if recommendations:
+        grounding_lines.append("Strategic recommendations:")
+        for i, rec in enumerate(recommendations[:5], 1):
+            action = rec.get("action") or str(rec)
+            impact = rec.get("impact") or ""
+            grounding_lines.append(
+                f"  R-{i:02d}: {action}" + (f" | Impact: {impact}" if impact else "")
+            )
+
+    grounding_text = "\n".join(grounding_lines)
+
+    system_prompt = f"""You are an expert data analyst assistant. You answer questions strictly grounded in the verified pipeline output below.
+
+GROUNDING CONTEXT:
+{grounding_text}
+
+Rules:
+- Answer ONLY from the grounding context above. Do not speculate or make up numbers.
+- If the answer is not present in the grounding context, say so clearly.
+- Be concise. Use bullet points where helpful.
+- When citing numbers or insights, reference the source (e.g., "per insight I-01", "from the dataset profile").
+- Format key numbers in bold using **value**.
+"""
+
+    import time as _time
+    t0 = _time.monotonic()
+    try:
+        from llm import build_chat_model
+        llm = build_chat_model(task="CHAT", temperature=0.2)
+        from langchain_core.messages import SystemMessage, HumanMessage
+        result = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=message)])
+        content = result.content if hasattr(result, "content") else str(result)
+        if isinstance(content, list):
+            content = " ".join(
+                b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+            )
+        latency_ms = int((_time.monotonic() - t0) * 1000)
+    except Exception as exc:
+        logger.warning("Chat LLM call failed: %s", exc)
+        # Graceful fallback: synthesize a grounded answer without the LLM
+        if cols_list:
+            content = (
+                f"Dataset **{filename}** has **{rows:,} rows** and **{columns} columns**.\n"
+                f"Features: {', '.join(str(c) for c in cols_list)}.\n"
+            ) if isinstance(rows, int) else (
+                f"Dataset **{filename}** · Features: {', '.join(str(c) for c in cols_list)}.\n"
+            )
+        elif insights:
+            content = "Key findings from the verified pipeline:\n" + "\n".join(
+                f"- {ins.get('title', '')}: {ins.get('explanation', '')}" for ins in insights[:4]
+            )
+        else:
+            content = f"LLM call failed ({exc}). Check your API keys in .env."
+        latency_ms = int((_time.monotonic() - t0) * 1000)
+
     return JSONResponse(
         content={
             "id": uuid.uuid4().hex,
             "role": "assistant",
-            "content": f"Based on dataset findings: regarding '{message}', key variables and distributions align with the generated analysis report.",
+            "content": content,
             "timestamp": "Just now",
-            "latencyMs": 140,
+            "latencyMs": latency_ms,
             "grounded": True,
         }
     )
+
+
 
 
 # --- Static frontend mounting (if built) ---

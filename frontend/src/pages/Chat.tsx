@@ -1,31 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Bot, CornerDownLeft, Loader2, RotateCcw, ShieldCheck, User } from "lucide-react";
+import { Bot, CornerDownLeft, Loader2, RotateCcw, ShieldCheck, User, WifiOff } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MockModeBanner } from "@/components/common/MockModeBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { mockChatReplies } from "@/data/mock";
 import { llmModels, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types";
+import { toast } from "sonner";
+
+const API_BASE =
+  (import.meta.env["VITE_API_BASE_URL"] as string | undefined) || "http://localhost:8000";
 
 const suggestions = [
   { label: "Summarize the key takeaways", key: "takeaways" },
   { label: "Which region has the highest sales?", key: "region" },
   { label: "Are there data quality issues?", key: "quality" },
-  { label: "What should we do next quarter?", key: "default" },
+  { label: "List all features / columns", key: "features" },
 ];
-
-function pickReply(text: string): string {
-  const t = text.toLowerCase();
-  if (t.includes("takeaway") || t.includes("summar")) return mockChatReplies["takeaways"] ?? "";
-  if (t.includes("region") || t.includes("highest") || t.includes("sales")) return mockChatReplies["region"] ?? "";
-  if (t.includes("quality") || t.includes("missing") || t.includes("clean")) return mockChatReplies["quality"] ?? "";
-  return mockChatReplies["default"] ?? "";
-}
 
 /** Minimal, safe renderer for the bold / bullet / quote markdown used in replies. */
 function RichText({ content }: { content: string }) {
@@ -64,22 +59,21 @@ export function Chat() {
   const clearChat = store.clearChat || (() => {});
   const mockMode = store.mockMode;
   const model = store.model;
-  const profile = store.profile || {};
+  const profile = store.profile;
+  const insights = store.insights || [];
+  const recommendations = store.recommendations || [];
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [chat, thinking]);
 
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  function send(text: string) {
+  async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || thinking) return;
+
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
@@ -89,18 +83,91 @@ export function Chat() {
     appendChat(userMsg);
     setInput("");
     setThinking(true);
+
     const started = Date.now();
-    timer.current = setTimeout(() => {
+
+    // Build grounding context from live store state
+    const columnsList = (profile?.columnStats || []).map((c) => c.name);
+    const chatContext = {
+      filename: profile?.filename ?? "dataset.csv",
+      rows: profile?.rows ?? 0,
+      columns: profile?.columns ?? 0,
+      quality_score: profile?.qualityScore ?? 0,
+      columns_list: columnsList,
+      insights: insights.map((ins) => ({
+        title: ins.title,
+        explanation: ins.explanation,
+        evidence: ins.evidence,
+        severity: ins.severity,
+        confidence: ins.confidence,
+        target_metric: ins.targetMetric,
+      })),
+      recommendations: recommendations.map((rec) => ({
+        action: rec.action,
+        impact: rec.impact,
+        severity: rec.severity,
+      })),
+    };
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60000);
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: trimmed, context: chatContext }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      appendChat({
+        id: data.id || `a-${Date.now()}`,
+        role: "assistant",
+        content: data.content || "(no response)",
+        timestamp: new Date().toISOString(),
+        latencyMs: data.latencyMs ?? Date.now() - started,
+        grounded: data.grounded ?? true,
+      });
+    } catch (err) {
+      const isAbort = err instanceof DOMException && err.name === "AbortError";
+      const errMsg = isAbort ? "Request timed out." : (err instanceof Error ? err.message : "Unknown error");
+
+      // Show toast for transient errors
+      toast.error("Chat failed", { description: errMsg });
+
+      // Inline fallback: synthesize an answer from store state
+      let fallback = "";
+      if (columnsList.length) {
+        const featureList = columnsList.join(", ");
+        if (trimmed.toLowerCase().includes("feature") || trimmed.toLowerCase().includes("column")) {
+          fallback = `**${profile?.filename}** has **${profile?.columns}** columns:\n- ${columnsList.join("\n- ")}`;
+        } else if (insights.length) {
+          fallback = `**Top insights from ${profile?.filename}:**\n` + insights.slice(0, 4).map(
+            (ins) => `- **${ins.title}** — ${ins.explanation}`
+          ).join("\n");
+        } else {
+          fallback = `Dataset **${profile?.filename}** · ${profile?.rows?.toLocaleString()} rows · ${profile?.columns} columns.\nFeatures: ${featureList}.\n\n> Backend is unreachable — run a pipeline first.`;
+        }
+      } else {
+        fallback = `> Backend unavailable (${errMsg}). Run a pipeline on the Launcher page first, then try again.`;
+      }
+
       appendChat({
         id: `a-${Date.now()}`,
         role: "assistant",
-        content: pickReply(trimmed),
+        content: fallback,
         timestamp: new Date().toISOString(),
         latencyMs: Date.now() - started,
-        grounded: true,
+        grounded: false,
       });
+    } finally {
       setThinking(false);
-    }, 1100);
+    }
   }
 
   const modelLabel = llmModels.find((m) => m.id === model)?.slug ?? model;
@@ -136,11 +203,13 @@ export function Chat() {
                     "grid size-8 shrink-0 place-items-center rounded-lg border",
                     m.role === "user"
                       ? "border-primary/30 bg-primary/12 text-primary"
-                      : "border-accent/30 bg-accent/12 text-accent",
+                      : m.grounded
+                        ? "border-accent/30 bg-accent/12 text-accent"
+                        : "border-orange-400/30 bg-orange-400/12 text-orange-400",
                   )}
                   aria-hidden
                 >
-                  {m.role === "user" ? <User className="size-4" /> : <Bot className="size-4" />}
+                  {m.role === "user" ? <User className="size-4" /> : m.grounded ? <Bot className="size-4" /> : <WifiOff className="size-4" />}
                 </span>
                 <div className={cn("max-w-[80%] min-w-0", m.role === "user" && "text-right")}>
                   {m.role === "user" ? (
@@ -158,6 +227,12 @@ export function Chat() {
                         grounded
                       </span>
                     )}
+                    {m.role === "assistant" && !m.grounded && (
+                      <span className="inline-flex items-center gap-1 text-orange-400">
+                        <WifiOff className="size-3" aria-hidden />
+                        offline
+                      </span>
+                    )}
                     {m.latencyMs != null && <span className="font-mono">{m.latencyMs}ms</span>}
                   </p>
                 </div>
@@ -171,7 +246,7 @@ export function Chat() {
                 </span>
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                  Reading the verified report…
+                  Calling the LLM with pipeline context…
                 </span>
               </div>
             )}
@@ -183,8 +258,9 @@ export function Chat() {
               {suggestions.map((s) => (
                 <button
                   key={s.key}
-                  onClick={() => send(s.label)}
-                  className="rounded-full border border-border bg-surface-2/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                  onClick={() => void send(s.label)}
+                  disabled={thinking}
+                  className="rounded-full border border-border bg-surface-2/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:opacity-40"
                 >
                   {s.label}
                 </button>
@@ -197,7 +273,7 @@ export function Chat() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    send(input);
+                    void send(input);
                   }
                 }}
                 aria-label="Message the analyst"
@@ -205,7 +281,7 @@ export function Chat() {
                 className="min-h-[88px] resize-none pr-28"
               />
               <Button
-                onClick={() => send(input)}
+                onClick={() => void send(input)}
                 disabled={!input.trim() || thinking}
                 className="absolute bottom-3 right-3 bg-[image:var(--gradient-primary)] text-primary-foreground shadow-glow"
                 size="sm"
@@ -230,10 +306,11 @@ export function Chat() {
             <CardContent className="space-y-3 text-sm">
               {[
                 ["Dataset", profile?.filename ?? "dataset.csv"],
-                ["Rows", profile?.rows ? profile.rows.toLocaleString() : "1,000"],
-                ["Columns", String(profile?.columns ?? 10)],
-                ["Quality", `${profile?.qualityScore ?? 98.5}%`],
-
+                ["Rows", profile?.rows ? profile.rows.toLocaleString() : "—"],
+                ["Columns", profile?.columns ? String(profile.columns) : "—"],
+                ["Quality", profile?.qualityScore ? `${profile.qualityScore}%` : "—"],
+                ["Features", profile?.columnStats?.length ? String(profile.columnStats.length) : "—"],
+                ["Insights", String(insights.length)],
                 ["Model", modelLabel],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between gap-3">

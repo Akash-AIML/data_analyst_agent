@@ -4,6 +4,7 @@ Profiler Agent — LangGraph Node (Member 1)
 Reads:  state["csv_path"]
 Writes: state["profile"], state["profile_report_path"], state["error_log"], state["status"]
 """
+import re as _re
 
 import os
 import logging
@@ -39,19 +40,35 @@ _profiling_tool = ProfilingTool()
 # ---------------------------------------------------------------------------
 # Helper: extract DataFrame summaries
 # ---------------------------------------------------------------------------
+# Regex-based whole-token ID detection. Matches the hint only when it appears
+# as a standalone token (surrounded by word boundaries), not as a substring of
+# another word. E.g. "id" matches "row_id" or "Id" but NOT "width" or "valid".
+_ID_HINT_RE = _re.compile(
+    r"(?<![a-z0-9])(?:" + "|".join([
+        "id", "key", "code", "uuid", "guid", "hash", "serial",
+        "index", "idx", "pk", "fk", "rownum", "row_num",
+        "number",   # only as a full token, not "phone_number"
+    ]) + r")(?![a-z0-9])",
+    _re.IGNORECASE,
+)
+
+
+def _is_id_column_name(col: str) -> bool:
+    """True only when the column name contains an ID-style token at a word boundary."""
+    return bool(_ID_HINT_RE.search(col))
+
+
 def _compute_descriptive_stats(df: pd.DataFrame) -> dict:
     """
     Compute descriptive_stats directly from pandas — never rely on the LLM for this.
     Returns a dict of {col_name: {mean, median, std, min, max}} for all numeric cols
     that are NOT obvious ID columns.
     """
-    id_hints = {"id", "key", "code", "num", "no", "number"}
     stats: dict = {}
     numeric_cols = df.select_dtypes(include=["int64", "float64", "int32", "float32"]).columns
     for col in numeric_cols:
-        col_lower = col.lower()
-        # Skip obvious ID columns
-        if any(hint in col_lower for hint in id_hints):
+        # Skip obvious ID columns — use word-boundary check, not bare substring
+        if _is_id_column_name(col):
             continue
         s = df[col].dropna()
         if s.empty:
@@ -116,20 +133,27 @@ def _build_profile_from_pandas(df: pd.DataFrame, csv_path: str) -> dict:
     without any LLM call. Used when the LLM fails on very large/wide datasets.
     """
     import os as _os
-    id_hints = {"id", "key", "code", "num", "no", "number"}
     missing_counts = df.isnull().sum()
 
     numeric_cols, categorical_cols, datetime_cols, id_cols = [], [], [], []
     constant_cols, high_card_cols = [], []
 
     for col in df.columns:
-        col_lower = col.lower()
         dtype = df[col].dtype
         nunique = df[col].nunique(dropna=True)
+        n_rows = len(df)
 
-        is_id_name = any(hint in col_lower for hint in id_hints)
+        # A column is treated as an ID if its name contains an ID-style token
+        # (word-boundary matched) OR it's an integer with near-100% unique values.
+        is_id_name = _is_id_column_name(col)
+        is_id_cardinality = (
+            dtype in ["int64", "int32"]
+            and n_rows > 0
+            and (nunique / n_rows) > 0.95
+            and nunique > 20
+        )
 
-        if is_id_name:
+        if is_id_name or is_id_cardinality:
             id_cols.append(col)
         elif dtype in ["int64", "float64", "int32", "float32"]:
             numeric_cols.append(col)
