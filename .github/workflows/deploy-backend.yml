@@ -66,16 +66,30 @@ jobs:
             echo "✓ ACR created: $ACR_NAME"
           fi
 
-      # ── 6. Build & push image via ACR Tasks ──────────────────────
+      # ── 6. Build & Push Docker Image (using runner Docker daemon) ─
       - name: Build & Push Docker Image
         run: |
-          az acr build \
-            --registry "$ACR_NAME" \
-            --image "${APP_NAME}:${IMAGE_TAG}" \
-            --image "${APP_NAME}:latest" \
+          ACR_SERVER="${ACR_NAME}.azurecr.io"
+
+          # Get ACR credentials
+          ACR_CREDS=$(az acr credential show --name "$ACR_NAME" --output json)
+          ACR_USER=$(echo "$ACR_CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['username'])")
+          ACR_PASS=$(echo "$ACR_CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['passwords'][0]['value'])")
+
+          # Login to ACR with docker
+          echo "$ACR_PASS" | docker login "$ACR_SERVER" --username "$ACR_USER" --password-stdin
+
+          # Build image locally on the runner
+          docker build \
+            --tag "${ACR_SERVER}/${APP_NAME}:${IMAGE_TAG}" \
+            --tag "${ACR_SERVER}/${APP_NAME}:latest" \
             --file Dockerfile \
             .
-          echo "✓ Image pushed: ${ACR_NAME}.azurecr.io/${APP_NAME}:${IMAGE_TAG}"
+
+          # Push both tags
+          docker push "${ACR_SERVER}/${APP_NAME}:${IMAGE_TAG}"
+          docker push "${ACR_SERVER}/${APP_NAME}:latest"
+          echo "✓ Image pushed: ${ACR_SERVER}/${APP_NAME}:${IMAGE_TAG}"
 
       # ── 7. Create Container Apps Environment (skip if exists) ────
       - name: Create Container Apps Environment
