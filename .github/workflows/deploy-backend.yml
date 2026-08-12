@@ -9,12 +9,12 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - ".github/workflows/deploy-backend.yml"
-  workflow_dispatch:       # allow manual trigger from GitHub UI
+  workflow_dispatch:
 
 env:
   RESOURCE_GROUP: ai-data-analyst-rg
   LOCATION: eastus
-  ACR_NAME: aidataanalystacr            # change if taken — must be globally unique
+  ACR_NAME: aidataanalystacr
   APP_ENV_NAME: ai-data-analyst-env
   APP_NAME: ai-data-analyst-api
   IMAGE_TAG: ${{ github.sha }}
@@ -24,7 +24,7 @@ jobs:
     name: Build & Deploy
     runs-on: ubuntu-latest
     permissions:
-      id-token: write   # needed for Azure OIDC login (optional — see Step 1 note)
+      id-token: write
       contents: read
 
     steps:
@@ -32,62 +32,74 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Azure login ───────────────────────────────────────────
-      # Option A: Service Principal (simpler, works everywhere)
+      # ── 2. Install Container Apps CLI extension ──────────────────
+      - name: Install containerapp extension
+        run: az extension add --name containerapp --upgrade --yes
+
+      # ── 3. Azure Login ───────────────────────────────────────────
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          # AZURE_CREDENTIALS is a JSON blob:
-          # {
-          #   "clientId":       "<sp-app-id>",
-          #   "clientSecret":   "<sp-password>",
-          #   "subscriptionId": "<subscription-id>",
-          #   "tenantId":       "<tenant-id>"
-          # }
-          # Create with: az ad sp create-for-rbac --name "ai-data-analyst-sp"
-          #              --role contributor --sdk-auth --scopes /subscriptions/<id>
 
-      # ── 3. Ensure resource group exists ──────────────────────────
-      - name: Ensure Resource Group
+      # ── 4. Create Resource Group ─────────────────────────────────
+      - name: Create Resource Group
         run: |
           az group create \
-            --name $RESOURCE_GROUP \
-            --location $LOCATION \
+            --name "$RESOURCE_GROUP" \
+            --location "$LOCATION" \
             --output none
+          echo "✓ Resource group: $RESOURCE_GROUP"
 
-      # ── 4. Ensure ACR exists ─────────────────────────────────────
-      - name: Ensure ACR
+      # ── 5. Create ACR (skip if exists) ───────────────────────────
+      - name: Create ACR
         run: |
-          az acr create \
-            --resource-group $RESOURCE_GROUP \
-            --name $ACR_NAME \
-            --sku Basic \
-            --admin-enabled true \
-            --output none 2>/dev/null || true
+          if az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+            echo "✓ ACR already exists: $ACR_NAME"
+          else
+            az acr create \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$ACR_NAME" \
+              --sku Basic \
+              --admin-enabled true \
+              --output none
+            echo "✓ ACR created: $ACR_NAME"
+          fi
 
-      # ── 5. Build & push to ACR ───────────────────────────────────
+      # ── 6. Build & push image via ACR Tasks ──────────────────────
       - name: Build & Push Docker Image
         run: |
           az acr build \
-            --registry $ACR_NAME \
-            --image "$APP_NAME:$IMAGE_TAG" \
-            --image "$APP_NAME:latest" \
+            --registry "$ACR_NAME" \
+            --image "${APP_NAME}:${IMAGE_TAG}" \
+            --image "${APP_NAME}:latest" \
             --file Dockerfile \
-            . \
-            --output none
+            .
+          echo "✓ Image pushed: ${ACR_NAME}.azurecr.io/${APP_NAME}:${IMAGE_TAG}"
 
-      # ── 6. Ensure Container Apps Environment ─────────────────────
-      - name: Ensure Container Apps Environment
+      # ── 7. Create Container Apps Environment (skip if exists) ────
+      - name: Create Container Apps Environment
         run: |
-          az containerapp env create \
-            --name $APP_ENV_NAME \
-            --resource-group $RESOURCE_GROUP \
-            --location $LOCATION \
-            --output none 2>/dev/null || true
+          if az containerapp env show --name "$APP_ENV_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+            echo "✓ Environment already exists: $APP_ENV_NAME"
+          else
+            az containerapp env create \
+              --name "$APP_ENV_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --location "$LOCATION" \
+              --output none
+            echo "✓ Environment created: $APP_ENV_NAME"
+          fi
 
-      # ── 7. Deploy Container App ───────────────────────────────────
+      # ── 8. Deploy or Update Container App ────────────────────────
       - name: Deploy Container App
+        env:
+          OPENAI_API_KEY:   ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL:  ${{ secrets.OPENAI_BASE_URL }}
+          SELECTED_MODEL:   ${{ secrets.MODEL }}
+          GROQ_API_KEY:     ${{ secrets.GROQ_API_KEY }}
+          ALLOWED_ORIGINS:  ${{ secrets.ALLOWED_ORIGINS }}
+          LANGSMITH_KEY:    ${{ secrets.LANGSMITH_API_KEY }}
         run: |
           ACR_SERVER="${ACR_NAME}.azurecr.io"
           IMAGE_FULL="${ACR_SERVER}/${APP_NAME}:${IMAGE_TAG}"
@@ -97,14 +109,15 @@ jobs:
           ACR_PASS=$(echo "$ACR_CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['passwords'][0]['value'])")
 
           if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-            # Update existing app
+            echo "Updating existing Container App image..."
             az containerapp update \
               --name "$APP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
               --image "$IMAGE_FULL" \
               --output none
+            echo "✓ Image updated to $IMAGE_FULL"
           else
-            # Create new app
+            echo "Creating new Container App..."
             az containerapp create \
               --name "$APP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
@@ -119,35 +132,39 @@ jobs:
               --max-replicas 3 \
               --cpu 1.0 \
               --memory 2.0Gi \
+              --secrets \
+                "openai-api-key=${OPENAI_API_KEY}" \
+                "groq-api-key=${GROQ_API_KEY}" \
+                "langsmith-api-key=${LANGSMITH_KEY}" \
               --env-vars \
                 "OPENAI_API_KEY=secretref:openai-api-key" \
-                "OPENAI_BASE_URL=${{ secrets.OPENAI_BASE_URL }}" \
-                "MODEL=${{ secrets.MODEL }}" \
+                "OPENAI_BASE_URL=${OPENAI_BASE_URL}" \
+                "MODEL=${SELECTED_MODEL}" \
                 "GROQ_API_KEY=secretref:groq-api-key" \
-                "ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}" \
+                "ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" \
+                "LANGSMITH_TRACING_V2=true" \
+                "LANGSMITH_API_KEY=secretref:langsmith-api-key" \
+                "LANGSMITH_PROJECT=ai-data-analyst" \
                 "LLM_BUDGET_US=5.0" \
                 "LLM_MIN_INTERVAL_S=0.5" \
                 "ENABLE_PDF=0" \
                 "OUTPUT_ROOT=/app/output" \
                 "UPLOAD_DIR=/app/uploads" \
-              --secrets \
-                "openai-api-key=${{ secrets.OPENAI_API_KEY }}" \
-                "groq-api-key=${{ secrets.GROQ_API_KEY }}" \
-                "langsmith-api-key=${{ secrets.LANGSMITH_API_KEY }}" \
-              --env-vars \
-                "LANGSMITH_TRACING_V2=true" \
-                "LANGSMITH_API_KEY=secretref:langsmith-api-key" \
-                "LANGSMITH_PROJECT=ai-data-analyst" \
               --output none
+            echo "✓ Container App created"
           fi
 
-      # ── 8. Print deployed URL ─────────────────────────────────────
-      - name: Get App URL
+      # ── 9. Print deployed URL ─────────────────────────────────────
+      - name: Get Deployed URL
         run: |
           URL=$(az containerapp show \
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --query "properties.configuration.ingress.fqdn" \
             --output tsv)
-          echo "✅ Deployed: https://${URL}"
-          echo "APP_URL=https://${URL}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ API live at: https://${URL}"
+          echo "## ✅ Deployment complete" >> $GITHUB_STEP_SUMMARY
+          echo "**API URL:** https://${URL}" >> $GITHUB_STEP_SUMMARY
+          echo "**Health:** https://${URL}/health" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Set this in Vercel: \`VITE_API_BASE_URL=https://${URL}\`" >> $GITHUB_STEP_SUMMARY
