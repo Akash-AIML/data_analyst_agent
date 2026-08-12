@@ -319,7 +319,14 @@ def chat_endpoint(payload: dict = Body(...)):
     if not message:
         raise HTTPException(status_code=400, detail="Missing message in request payload.")
 
-    ctx = payload.get("context") or {}
+    raw_ctx = payload.get("context")
+    if isinstance(raw_ctx, dict):
+        ctx = raw_ctx
+    elif isinstance(raw_ctx, str):
+        ctx = {"raw_text": raw_ctx}
+    else:
+        ctx = {}
+
     filename = ctx.get("filename", "the uploaded dataset")
     rows = ctx.get("rows", "unknown")
     columns = ctx.get("columns", "unknown")
@@ -327,6 +334,7 @@ def chat_endpoint(payload: dict = Body(...)):
     cols_list = ctx.get("columns_list") or []
     insights = ctx.get("insights") or []
     recommendations = ctx.get("recommendations") or []
+
 
     # Build grounding block
     grounding_lines = [
