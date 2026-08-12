@@ -206,8 +206,9 @@ def validate_results(
             continue
 
         kind = res.get("kind", "generic")
-        ok = _validate_one(chk, prefix, title, kind, res, stats, profile,
-                           num_cols, cat_cols, all_profile_cols)
+        _validate_one(
+            chk, prefix, title, kind, res, stats, profile, num_cols, cat_cols, all_profile_cols
+        )
 
     return chk.summary()
 
@@ -395,4 +396,3 @@ def extract_evidence(profile: Dict[str, Any],
     # upstream analysis failure surfaces as "degraded" instead of silently
     # presenting profiler metadata as if it were verified analysis output.
     return evidence
-

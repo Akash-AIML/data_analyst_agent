@@ -22,12 +22,10 @@ What we DO NOT block (and why):
 from __future__ import annotations
 
 import csv
-import os
 
 import pytest
 
 from tools.python_executor import SecurityError, _sanitize_generated_code, execute_code
-
 
 # ---------------------------------------------------------------------------
 # Helpers

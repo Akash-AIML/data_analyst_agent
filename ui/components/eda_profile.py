@@ -2,6 +2,7 @@
 
 import streamlit as st
 import streamlit.components.v1 as components
+
 from ui.services.pipeline_service import read_html_report
 
 

@@ -12,7 +12,6 @@ from agents.insight.validation import (
 from tests.insight import fixtures
 
 
-
 def test_healthy_results_pass():
     report = validate_results(fixtures.profile_dict(), fixtures.healthy_results())
     assert report["status"] == "passed"

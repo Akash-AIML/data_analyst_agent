@@ -1,6 +1,5 @@
 """Tab 5 component: Pipeline execution logs, task plan breakdown, thinking narrative, and raw state inspection."""
 
-import json
 import streamlit as st
 
 

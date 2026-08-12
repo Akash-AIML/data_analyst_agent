@@ -8,9 +8,9 @@ Use the deterministic ``FakeChatModel`` stub so ``plain_invoke`` /
 
 import pytest
 
+from agents.analysis.schemas import AnalysisPlan
 from llm import plain_invoke, structured_invoke
 from tests.insight.fake_llm import FakeChatModel
-from agents.analysis.schemas import AnalysisPlan
 
 
 @pytest.fixture
@@ -85,6 +85,7 @@ def test_langsmith_disabled_by_default(monkeypatch):
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
     monkeypatch.delenv("LANGCHAIN_API_KEY", raising=False)
     import importlib
+
     import llm
     importlib.reload(llm)
     assert llm.LANGSMITH_TRACING_ENABLED is False
@@ -235,6 +236,7 @@ def test_budget_warn_logged_once(monkeypatch, caplog):
     monkeypatch.setenv("LLM_BUDGET_US", "1.0")
     monkeypatch.setenv("LLM_BUDGET_WARN_RATIO", "0.5")
     import logging
+
     import llm
     llm.budget_reset()
     # Force _run_cost_us above 0.5
@@ -264,8 +266,8 @@ def test_budget_exhaustion_raises(monkeypatch):
 
 def test_resilient_fallback_model_structured_output(chat):
     """Verify ResilientFallbackModel structured_output delegates cleanly."""
-    from tools.llm_factory import ResilientFallbackModel
     from agents.analysis.schemas import AnalysisPlan
+    from tools.llm_factory import ResilientFallbackModel
 
     fallback_model = ResilientFallbackModel(models=[chat])
     bound = fallback_model.with_structured_output(AnalysisPlan)

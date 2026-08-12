@@ -1,7 +1,8 @@
 """Tab 3 component: Executive insights, recommendations, chart image grid gallery, and report downloads."""
 
-import os
 import json
+import os
+
 import streamlit as st
 
 

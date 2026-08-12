@@ -1,22 +1,19 @@
 import os
 import sys
-import pytest
 
 # Ensure project root is in path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from ui.services.pipeline_service import (
-    sanitize_filename,
+from ui.components.diagnostics import render_diagnostics  # noqa: E402
+from ui.components.eda_profile import render_eda_profile  # noqa: E402
+from ui.components.insights_gallery import render_insights_gallery  # noqa: E402
+from ui.services.pipeline_service import (  # noqa: E402
     get_available_samples,
     read_html_report,
+    sanitize_filename,
 )
-
-from ui.components.header import render_header
-from ui.components.eda_profile import render_eda_profile
-from ui.components.insights_gallery import render_insights_gallery
-from ui.components.diagnostics import render_diagnostics
 
 
 def test_sanitize_filename_prevents_path_traversal():

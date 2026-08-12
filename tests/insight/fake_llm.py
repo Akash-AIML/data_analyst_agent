@@ -7,7 +7,6 @@ Returns canned structured JSON depending on which prompt it receives, so
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage

@@ -8,27 +8,40 @@ Endpoints:
   POST /chat                     → report & insight grounded Q&A endpoint
 """
 
-import os
-import shutil
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Body, BackgroundTasks, Depends, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from dotenv import load_dotenv
+from fastapi import (
+    BackgroundTasks,
+    Body,
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Security,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
 
-from state import AgentState
 from agents.profiler.agent import profiler_node
 from config import (
-    PROFILE_DIR, REPORT_DIR, UPLOAD_DIR, API_ALLOWED_ORIGINS,
-    API_MAX_FILE_SIZE_MB, API_BEARER_TOKEN, ensure_dirs, snapshot,
+    API_ALLOWED_ORIGINS,
+    API_BEARER_TOKEN,
+    API_MAX_FILE_SIZE_MB,
+    PROFILE_DIR,
+    REPORT_DIR,
+    UPLOAD_DIR,
+    ensure_dirs,
+    snapshot,
 )
-
+from state import AgentState
 
 try:
     from graph import create_pipeline
@@ -367,7 +380,7 @@ Rules:
     try:
         from llm import build_chat_model
         llm = build_chat_model(task="CHAT", temperature=0.2)
-        from langchain_core.messages import SystemMessage, HumanMessage
+        from langchain_core.messages import HumanMessage, SystemMessage
         result = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=message)])
         content = result.content if hasattr(result, "content") else str(result)
         if isinstance(content, list):

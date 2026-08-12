@@ -13,8 +13,7 @@ from __future__ import annotations
 import traceback
 from typing import Any, Callable, Dict, List
 
-from agents.insight import prompts
-from agents.insight import report_generator
+from agents.insight import prompts, report_generator
 from agents.insight.validation import extract_evidence, validate_results
 from agents.insight.verify import verify_by_recompute
 from config import REPORT_DIR

@@ -3,10 +3,10 @@
 
 import json
 import os
-import sys
+
 import pytest
 
-from agents.analysis.agent import planner_node, executor_node, reflector_node
+from agents.analysis.agent import executor_node, planner_node, reflector_node
 
 
 def create_mock_state():
@@ -14,7 +14,7 @@ def create_mock_state():
     mock_path = os.path.join(os.path.dirname(__file__), "..", "..", "mocks", "mock_profile_analysis.json")
     with open(mock_path, "r") as f:
         mock = json.load(f)
-    
+
     state = {
         "csv_path": mock["csv_path"],
         "profile": mock["profile"],
@@ -56,7 +56,7 @@ def test_planner(mock_analysis_state):
         pytest.skip(f"Planner LLM call failed or rate-limited: {state.get('error_log')}")
     assert state["analysis_plan"] is not None, "Plan should not be None"
     assert len(state["analysis_plan"]) > 0, "Plan should have at least 1 task"
-    
+
     for task in state["analysis_plan"]:
         assert "task_id" in task
         assert "task_name" in task
@@ -70,10 +70,10 @@ def test_executor_and_reflector(mock_analysis_state):
     if state.get("status") == "failed" or not state.get("analysis_plan"):
         pytest.skip(f"Planner LLM call failed or rate-limited: {state.get('error_log')}")
     state = executor_node(state)
-    
+
     execution_log = state.get("execution_log") or []
     assert len(execution_log) > 0, "Should have at least 1 log entry"
-    
+
     # Run executor until all tasks done or failed
     max_iterations = len(state["analysis_plan"]) * 4
     for _ in range(max_iterations):
@@ -81,7 +81,7 @@ def test_executor_and_reflector(mock_analysis_state):
         if not pending:
             break
         state = executor_node(state)
-    
+
     state = reflector_node(state)
     notes = state.get("reflection_notes", [])
     assert len(notes) > 0, "Should have reflection notes"
@@ -102,7 +102,7 @@ def test_error_recovery(mock_analysis_state):
     state["execution_log"] = []
     state["analysis_results"] = {}
     state["generated_files"] = []
-    
+
     state = executor_node(state)
     log = state["execution_log"]
     assert len(log) > 0

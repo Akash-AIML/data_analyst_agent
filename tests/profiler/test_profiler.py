@@ -7,16 +7,15 @@ LLM-dependent tests are automatically skipped when OPENAI_API_KEY is not set.
 File-validation tests run without any API key.
 """
 
-import io
 import os
 import sys
+
 import pytest
 
 # Ensure project root is on the path when running directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from state import AgentState
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -171,7 +170,8 @@ class TestIntegration:
 
     def test_all_missing_column_still_profiled(self):
         """A CSV with one column being all NaN should still complete."""
-        import tempfile, csv
+        import csv
+        import tempfile
         rows = [
             ["ID", "Value", "AllMissing"],
             ["1", "10.5", ""],
