@@ -1,375 +1,510 @@
-# 🤖 AI Data Analyst Agent System
+# 🤖 AI Data Analyst — Multi-Agent Pipeline
 
-An autonomous multi-agent data analysis platform built with **LangGraph**, **Pydantic**, **FastAPI**, and **Streamlit**. 
+> **Live Demo:** <https://analysis.akashg.me/>
 
-Given a CSV dataset, the system automatically performs exploratory data analysis (EDA), generates data profiling reports, plans and executes sandboxed Python code to compute stats and plot charts, validates quantitative evidence, compiles an executive HTML/PDF report, and provides a report-grounded conversational AI assistant.
+An autonomous **multi-agent data analysis platform** that turns a raw CSV into a
+validated, executive-ready deliverable. Built with **LangGraph** (orchestration),
+**FastAPI** (REST API), **TanStack Start / React** (dashboard), **sweetviz**
+(interactive EDA report), and deterministic LLM verified evidence.
 
-| Agent | Role | Code | Readme |
-|-------|------|------|--------|
-| **Member 1 — Profiler** | CSV → pandas + sweetviz HTML report + structured `profile` | `agents/profiler_agent.py`, `tools/`, `api/`, `ui/` | `agents/m1/README.md` |
-| **Member 2 — Analysis** | planner → executor (sandboxed code) → reflector → `analysis_results` | `agents/analysis_agent.py`, `tools/python_executor.py` | (see docstring) |
-| **Member 3 — Insight** | validates, writes insights/recommendations, compiles HTML+PDF report, report-grounded Streamlit chat | `agents/insight/` | `agents/insight/README_INSIGHT.md` |
+Given a CSV upload, the system:
 
----
+1. **Profiles** the data (pandas statistics + Sweetviz interactive report).
+2. **Plans & executes** sandboxed Python to compute stats and plot charts.
+3. **Verifies** every number before the LLM is allowed to use it.
+4. **Writes** insights, recommendations, and a report-grounded chatbot answer.
+5. **Delivers** the Sweetviz HTML report as the primary shareable/downloadable artifact.
 
-## 📌 1. Project Overview
-
-The **AI Data Analyst Agent** transforms raw CSV files into validated, executive-ready analytical insights through a collaborative pipeline of specialized agents:
-
-1. **Member 1 — Profiler Agent**: Inspects CSV structure, extracts statistical summaries via pandas/LLM, and produces an interactive `ydata-profiling` HTML report.
-2. **Member 2 — Analysis Agent**: Generates a task-based analysis plan, executes Python code in an isolated subprocess sandbox, captures stdout/stderr/generated charts, and reflects on task completion.
-3. **Member 3 — Insight & Report Agent**: Performs deterministic cross-validation, extracts verified evidence, formulates insights and recommendations, renders Base64-embedded HTML/PDF deliverables, and powers a report-grounded chatbot.
-
----
-
-## ✨ 2. Key Features
-
-- **Multi-Agent Orchestration**: End-to-end workflow managed by a state-driven LangGraph architecture.
-- **Resilient LLM Provider Fallback**: Automatic, zero-downtime fallback across **Groq → Gemini → OpenAI** (`ResilientFallbackModel`) to handle API outages or rate limits.
-- **Sandboxed Python Code Execution**: Isolated subprocess execution (30s timeout) with dynamic chart generation (Matplotlib/Seaborn) and automatic code sanitization.
-- **Deterministic Evidence Validation**: Pre-LLM mathematical validation engine verifying bounds, rates, cardinalities, and column existence.
-- **Pure Pandas Profiling Fallback**: Robust fallback profiling mechanism when LLMs encounter context limitations on ultra-wide or massive datasets.
-- **Offline HTML & PDF Report Generation**: Jinja2 templated executive HTML reports with Base64 image embedding, plus WeasyPrint PDF generation (with graceful degradation if native dependencies are absent).
-- **Report-Grounded Q&A Chatbot**: Anti-hallucination chat agent strictly constrained to the generated report context with explicit *"Not in this report"* response rules.
-- **Interactive 5-Tab Streamlit Dashboard**: Web UI covering Pipeline Execution, EDA Inspection, Visual Galleries, Interactive Q&A Chat, and Agent Diagnostics.
-- **Production REST API**: FastAPI backend providing asynchronous endpoints for file uploads, profiling, and report downloads.
+> **Report policy:** the primary HTML deliverable is the interactive **Sweetviz
+> profile report** (rich, self-contained, offline-friendly). PDF export is
+> disabled by default and can be re-enabled via `ENABLE_PDF=1`.
 
 ---
 
-## 📐 3. Architecture & How It Works
+## 🧭 Table of Contents
+
+- [Demo](#-demo)
+- [Key Features](#-key-features)
+- [System Architecture & Workflow](#-system-architecture--workflow)
+- [Two Frontends](#-two-frontends)
+- [Member Contributions](#-member-contributions--who-built-what)
+- [Shared State Architecture](#-shared-state-architecture)
+- [Project Structure](#-project-structure)
+- [Prerequisites](#-prerequisites)
+- [Installation & Setup](#-installation--setup)
+- [Environment Variables](#-environment-variables)
+- [Running the Application](#-running-the-application)
+- [Deployment](#-deployment)
+- [API Reference](#-api-reference)
+- [Tests](#-tests)
+- [Reports & Outputs](#-reports--outputs)
+- [Reliability & Graceful Degradation](#-reliability--graceful-degradation)
+- [Recent Improvements](#-recent-improvements)
+- [Known Limitations](#-known-limitations)
+- [Roadmap](#-roadmap)
+
+---
+
+## 🌐 Demo
+
+| Target | URL |
+|---|---|
+| **React Dashboard (TanStack)** | <https://analysis.akashg.me/> |
+| API health + config | `GET https://<api-host>/health`, `GET /config` |
+| OpenAPI docs | `GET /docs` |
+
+The demo frontend talks to the FastAPI backend exposed via **Azure Container Apps**;
+upload any CSV (e.g. `data/sample_sales.csv`) to run the full pipeline and
+download the generated report.
+
+---
+
+## ✨ Key Features
+
+- **Multi-Agent Orchestration.** State-driven `StateGraph` (LangGraph) wiring
+  Profiler → Analysis → Insight with conditional re-routing.
+- **LLM Resilient Fallback.** Primary OpenAI-compatible provider with automatic
+  **Groq → Gemini** failover (`ResilientFallbackModel`) on 4xx/429/rate limits,
+  plus centralized usage logging, budget caps, and pacing in `llm.py`.
+- **Deterministic Evidence Verification.** A pre-LLM validation engine checks
+  bounds, rates, cardinalities, and column existence; every insight is
+  **verify-by-recompute** gated against the raw CSV with configurable tolerance
+  before it reaches the report.
+- **Sandboxed Python Execution.** Generated analysis code runs in an isolated
+  subprocess with POSIX resource limits (`RLIMIT_CPU`, `RLIMIT_AS`, wall-clock
+  timeout) and an **AST-based security gate** blocking `os`, `subprocess`,
+  `shutil`, `ctypes`, `socket`, `eval/exec/__import__`, and `os.environ` access.
+- **Interactive EDA Report.** Trusted **Sweetviz** auto-generated profile is the
+  primary HTML deliverable — self-contained, works offline, no PDF dependency.
+- **Report-Grounded Chatbot.** Anti-hallucination Q&A strictly constrained to
+  verified pipeline output; graceful LLM-offline fallback answers.
+- **Observability.** Optional **LangSmith** tracing tags every run/node; an
+  `output/llm_cache.json` response cache (TTL + FIFO cap) cuts repeat LLM spend.
+- **Production REST API + Two UIs.** FastAPI backend, a modern TanStack/React
+  dashboard, and a 5-tab Streamlit app.
+- **Pure-Pandas Fallback.** When an LLM is unavailable, profiling/analysis
+  degrade gracefully to fully deterministic pandas output — no API key required
+  for the core pipeline.
+
+---
+
+## 📐 System Architecture & Workflow
+
+```mermaid
+flowchart TD
+    A[Upload CSV] --> B[1. Profiler Node]
+    B -- failed --> I[Insight Node - Degraded Report]
+    B -- ok --> C[2a. Planner Node]
+    C --> D{2b. Executor - Sandboxed Python}
+    D -- tasks pending --> D
+    D -- done --> E[2c. Reflector Node]
+    E -- planner appended new tasks --> D
+    E -- done --> F[3. Insight Node]
+    F --> G[Validation - deterministic]
+    G --> H[Evidence extraction + verify-by-recompute]
+    H --> J[LLM insights / recommendations / consistency audit]
+    J --> K[report_generator - Jinja2]
+    K --> L[(Sweetviz HTML report - primary)]
+    K --> M[(summary_report_path - secondary)]
+    A -.-> N[LangSmith tracing - optional]
+    F -.-> N
+    N --> O[(output/llm_cache.json)]
+```
+
+### Pipeline run (as defined in `graph.py`)
 
 ```
-                     ┌────────────────────────┐
-                     │     Uploaded CSV       │
-                     └───────────┬────────────┘
-                                 │
-                                 ▼
-                     ┌────────────────────────┐
-                     │    1. Profiler Agent   │
-                     │  (Pandas + ydata-prof) │
-                     └───────────┬────────────┘
-                                 │
-                                 ▼
-                     ┌────────────────────────┐
-                     │  2a. Analysis Planner  │
-                     │   (Builds task plan)   │
-                     └───────────┬────────────┘
-                                 │
-                                 ▼
-              ┌───────────────► 2b. Execution Sandbox (Subprocess)
-              │                 │   (Generates plots & stats)
-              │                 ▼
-              └──────────────── 2c. Reflector Agent
-                   (Retries)    │   (Evaluates completeness)
-                                │
-                                ▼
-                     ┌────────────────────────┐
-                     │  3. Insight & Report   │
-                     │   (Validate + Render)  │
-                     └───────────┬────────────┘
-                                 │
-            ┌────────────────────┴────────────────────┐
-            ▼                                         ▼
- ┌──────────────────────┐                 ┌──────────────────────┐
- │  Executive Deliverables│                 │ Report-Grounded Chat │
- │  (HTML & PDF Reports)│                 │ (Streamlit Interface)│
- └──────────────────────┘                 └──────────────────────┘
+START
+  └─► profiler ────────────── router ──► planner ──► executor ──(self-loop while pending)──► reflector
+        │                         │                                               │
+        └─ status == failed ──────┘                                              └── executor (new tasks)  /
+                                                     (all done)                    → insight → END
 ```
 
-### Shared State Architecture (`AgentState`)
-All agents read from and write to a single source of truth defined in `state/graph_state.py` (and re-exported via `state.py` / `agents/state.py`). The state is strictly validated via Pydantic (`StateContract`).
+- `profiler` (**M1**) — reads the CSV (UTF-8 → latin-1 fallback), validates shape,
+  runs the Sweetviz profiling tool, and builds a structured `profile` dict.
+- `planner` (**M2**) — decomposes the dataset into a task plan.
+- `executor` (**M2**) — runs generated Python in the sandbox, captures
+  stdout/stderr + chart files; self-loops while tasks remain pending.
+- `reflector` (**M2**) — assesses completeness, may append tasks.
+- `insight` (**M3**) — validates results, extracts verified evidence, writes
+  LLM insights/recommendations, runs a self-consistency audit, and compiles the
+  reports.
+
+All nodes mutate and return the shared `AgentState` dict, so no node sees stale
+or partial data from another.
+
+---
+
+## 🖥️ Two Frontends
+
+| Frontend | Stack | Command | Notes |
+|---|---|---|---|
+| **Web Dashboard** | TanStack Start / React 19, TypeScript, Tailwind | `cd frontend && npm run dev` | Primary UI (deployed at the demo link) |
+| **Streamlit App** | Streamlit 5-tab dashboard | `streamlit run app.py` | Pipeline runner, EDA, insights, chat, diagnostics |
+
+The React app (front of `/report/{filename}`) renders the Sweetviz profile report
+in an embedded iframe on the Profile tab and provides the HTML + PDF Report
+download buttons.
+
+---
+
+## 👥 Member Contributions — Who Built What
+
+The system was developed by a team of three members, each owning one agent in
+the pipeline, coordinated through the shared `AgentState` contract
+(`state/graph_state.py`).
+
+### Member 1 — Profiler Agent (EDA & Data Profiling)
+
+- CSV ingestion with encoding fallback (`utf-8` → `latin-1`) and shape validation.
+- **Sweetviz** integration (`tools/profiling_tool.py`) producing the interactive
+  profile report that is now the primary HTML deliverable.
+- Structured dataset profile (`ProfileOutput` schema) — rows, columns, column
+  metadata, numeric/categorical/datetime classification, descriptive statistics.
+- **Pure-Pandas fallback** profiler for zero-LLM, deterministic operation
+  (`LLM_PROFILER` opt-in for the LLM classification pass).
+- Profiling tunables centralized in `config.py`:
+  `PROFILE_MAX_FILE_SIZE_MB`, `PROFILE_PAIRWISE_COL_LIMIT`.
+- Tests: `tests/profiler/test_profiler.py`, profiler fixtures + edge cases.
+
+**Key code:** `agents/profiler/agent.py`, `agents/profiler/schemas.py`,
+`agents/profiler/prompts.py`, `tools/profiling_tool.py`.
+
+### Member 2 — Analysis Agent (Planner → Executor → Reflector)
+
+- Task-based analysis planning (`planner_node`) decomposing the profile into
+  concrete analysis tasks.
+- **Sandboxed code execution** (`tools/python_executor.py`):
+  - POSIX resource limits (`RLIMIT_CPU`, `RLIMIT_AS`, `EXECUTION_TIMEOUT`).
+  - **AST security gate** (`SecurityError`) blocking dangerous builtins/modules
+    and `os.environ` reads; sandbox violations surface as safe error dicts.
+  - Captures stdout, stderr, generated image files, and a `RESULT_JSON` protocol
+    that feeds Member 3's verification.
+- **Reflector** QA loop that evaluates each task and can append follow-up tasks.
+- Parallel task execution and retry with exponential backoff for rate limits.
+- Execution tunables: `EXECUTION_TIMEOUT`, `EXEC_CPU_LIMIT_S`, `EXEC_MEM_LIMIT_MB`.
+- Tests: `tests/analysis/test_analysis.py`, `tests/tools/test_sandbox_security.py`
+  (27 tests).
+
+**Key code:** `agents/analysis/agent.py` (`planner_node`, `executor_node`,
+`reflector_node`), `agents/analysis/prompts.py`, `agents/analysis/schemas.py`,
+`agents/analysis/templates.py`, `tools/python_executor.py`.
+
+### Member 3 — Insight & Report Agent (Verification, Insights, Deliverables)
+
+- **Deterministic validation engine** (`agents/insight/validation.py`) checking
+  bounds, percentages, correlation ranges, rates, cardinalities, and column
+  existence — no LLM involved for the math.
+- **Evidence extraction** that only lets verified numbers reach the LLM.
+- **Verify-by-recompute gate** (`agents/insight/verify.py`) — the final numbers
+  are recomputed from the CSV and must match within
+  `RECOMPUTE_TOLERANCE`/`RECOMPUTE_ABS_TOLERANCE`, else the insight is rejected.
+- **LLM insight/recommendation generation** with an LLM self-consistency audit
+  (`prompts.py`), including dedupe-by-metric and evidence-membership gates.
+- **Report compiler** (`agents/insight/report_generator.py`): Jinja2 HTML +
+  optional WeasyPrint PDF; base64-embedded charts; graceful degradation on any
+  failure (`report_status` = `ok` | `degraded` | `failed`; `pdf_status` bit is
+  `skipped` when PDF is disabled).
+- **Report-grounded chat** (`agents/insight/chat.py`, `api/main.py /chat`)
+  constrained to verified context with offline fallback.
+- PDF policy: disabled by default — the Sweetviz profile report is the primary
+  HTML deliverable.
+- Tests: `tests/insight/*` (fixtures, validation, verify, report generator,
+  insight node, chat) — **16 tests**, fully offline via `FakeChatModel`.
+
+**Key code:** `agents/insight/insight_node.py`, `agents/insight/validation.py`,
+`agents/insight/verify.py`, `agents/insight/prompts.py`,
+`agents/insight/report_generator.py`, `agents/insight/chat.py`.
+
+### Shared / Integration Work
+
+- `graph.py` — LangGraph `StateGraph` composition + conditional routing.
+- `state/graph_state.py` — single source of truth `AgentState` (TypedDict +
+  validating Pydantic `StateContract`).
+- `llm.py` — centralized model factory with provider failover, usage/budget
+  tracking, response cache, and LangSmith tracing metadata.
+- `config.py` — paths + tunables, `ensure_dirs()`, `snapshot()`.
+- `api/main.py` — FastAPI routes (`/health`, `/analyze`, `/report/{filename}`,
+  `/config`, `/chat`), CORS allowlist, bearer-token auth, static frontend mount.
+- Integration tests: `tests/pipeline/test_graph.py`, `tests/llm/test_llm.py`.
+
+---
+
+## 🔗 Shared State Architecture (`AgentState`)
+
+Every agent reads and writes the **same** state object — the contract is
+defined once in `state/graph_state.py` (re-exported via `state.py` and
+`agents/state.py`) and validated by the Pydantic `StateContract` model.
 
 | Agent | Keys Written |
 |---|---|
-| **Profiler** | `csv_path`, `profile`, `profile_report_path`, `status` |
-| **Analysis** | `analysis_plan`, `analysis_results`, `generated_files`, `execution_log`, `reflection_notes` |
-| **Insight** | `validation_report`, `insights`, `recommendations`, `report_path`, `pdf_path`, `report_status` |
-| **Shared** | `error_log`, `thinking_log`, `status` |
+| **Profiler (M1)** | `csv_path`, `profile`, `profile_report_path`, `status` |
+| **Analysis (M2)** | `analysis_plan`, `analysis_results`, `generated_files`, `execution_log`, `reflection_notes` |
+| **Insight (M3)** | `validation_report`, `insights`, `recommendations`, `report_path`, `summary_report_path`, `report_status`, `pdf_path`/`pdf_status` |
+| **Shared** | `error_log`, `thinking_log`, `llm_calls`, `status` |
 
 ---
 
-## 📁 4. Project Structure
+## 📁 Project Structure
 
 ```
 data_analyst_agent/
-├── agents/                     # Agent implementations
-│   ├── profiler/               # Profiler Agent (M1)
-│   │   ├── agent.py            # profiler_node
-│   │   ├── prompts.py          # Profiler system & user prompts
-│   │   └── schemas.py          # ProfileOutput Pydantic schema
-│   ├── analysis/               # Analysis Agent (M2)
-│   │   ├── agent.py            # planner_node, executor_node, reflector_node
-│   │   └── prompts.py          # Code generation & reflection prompts
-│   └── insight/                # Insight & Report Agent (M3)
-│       ├── insight_node.py     # insight_node orchestration
-│       ├── validation.py       # Deterministic verification engine
-│       ├── report_generator.py # Jinja2 HTML & WeasyPrint PDF compiler
-│       ├── chat.py             # Report-grounded chatbot core
-│       ├── prompts.py          # Insight generation & verification prompts
-│       └── templates/          # Jinja2 HTML templates
-│
-├── api/                        # FastAPI REST API Backend
-│   └── main.py                 # Endpoint routes (/health, /analyze, /report/{filename})
-│
-├── state/                      # Shared state contract
-│   └── graph_state.py          # AgentState TypedDict & StateContract Pydantic model
-│
-├── tools/                      # Shared execution & LLM utilities
-│   ├── llm_factory.py          # ResilientFallbackModel (Groq -> Gemini -> OpenAI)
-│   ├── profiling_tool.py       # ydata-profiling LangChain BaseTool
-│   └── python_executor.py      # Subprocess code execution sandbox
-│
-├── ui/                         # Streamlit Dashboard UI
-│   ├── components/             # Modular Streamlit tab components
-│   │   ├── header.py           # Top branding header & CSS styling
-│   │   ├── pipeline_runner.py  # Tab 1: Ingestion & Pipeline Runner
-│   │   ├── eda_profile.py      # Tab 2: EDA & Embedded ydata Report
-│   │   ├── insights_gallery.py # Tab 3: Insights & Visualizations Gallery
-│   │   ├── analyst_chat.py     # Tab 4: Interactive Analyst Q&A Chat
-│   │   └── diagnostics.py      # Tab 5: Agent Thinking Logs & Raw State
-│   └── services/               # UI helper services (pipeline_service.py)
-│
-├── tests/                      # Automated test suite (55 test cases)
-│   ├── analysis/               # Analysis agent tests
-│   ├── insight/                # Insight agent, validation, & chat tests
-│   ├── pipeline/               # Full pipeline graph tests
-│   ├── profiler/               # Profiler agent tests
-│   └── ui/                     # Web UI tests
-│
-├── data/                       # Sample CSV datasets (sample_sales.csv, etc.)
-├── output/                     # Generated outputs (profiles/, analysis/, reports/)
-├── uploads/                    # Temporary user file upload directory
-├── app.py                      # Streamlit application main entrypoint
-├── graph.py                    # LangGraph pipeline composition script
-├── requirements.txt            # Python dependencies
-└── README.md                   # Project documentation
+├── agents/
+│   ├── profiler/            # M1 Profiler agent (agent.py, schemas.py, prompts.py)
+│   ├── analysis/            # M2 Analysis agent (planner/executor/reflector)
+│   ├── insight/             # M3 Insight & Report agent
+│   │   ├── validation.py    # Deterministic verification engine
+│   │   ├── verify.py        # Verify-by-recompute gate
+│   │   ├── report_generator.py  # HTML (+ optional PDF) compiler
+│   │   ├── chat.py          # Report-grounded chatbot
+│   │   └── templates/       # Jinja2 HTML template
+│   └── state.py             # Re-export of the shared state contract
+├── api/
+│   └── main.py              # FastAPI routes & security
+├── state/
+│   └── graph_state.py       # AgentState + StateContract (single source of truth)
+├── tools/
+│   ├── profiling_tool.py    # Sweetviz LangChain BaseTool
+│   └── python_executor.py   # Sandboxed subprocess execution + AST security gate
+├── frontend/                # TanStack Start / React 19 dashboard
+│   ├── src/pages/           # Launcher, Profile, Insights, Chat, Diagnostics
+│   └── src/services/api.ts  # API client + report download helpers
+├── ui/                      # Streamlit 5-tab dashboard components
+├── tests/                   # 116 tests (profiler, analysis, insight, llm, pipeline, ui, sandbox)
+├── data/                    # Sample CSVs (sample_sales.csv, sample_hiring.csv, sample_churn.csv)
+├── output/                  # Generated artifacts (profiles/, reports/, analysis/, llm_cache.json)
+├── uploads/                 # Temporary upload directory
+├── config.py                # Centralized paths + tunables + ensure_dirs()
+├── graph.py                 # LangGraph pipeline composition
+├── llm.py                   # Model factory, failover, budget, cache, tracing
+├── app.py                   # Streamlit entry
+├── Dockerfile               # Backend container (Azure Container Apps)
+├── requirements.txt
+└── .github/workflows/       # deploy-backend.yml (Azure), lint.yml (Ruff)
 ```
 
 ---
 
-## ⚙️ 5. Prerequisites
+## ✅ Prerequisites
 
-- **Python**: 3.10 or higher (Tested on Python 3.13)
-- **Virtual Environment**: Recommended (`venv` or `conda`)
-- **Optional System Libraries (for PDF export)**:
-  - WeasyPrint requires native libraries (`Pango`, `Cairo`, `GLib`). If these native dependencies are not installed on your OS, PDF generation gracefully degrades while HTML reports remain fully functional.
-
----
-
-## 🚀 6. Installation & Setup
-
-1. **Navigate to the project directory**:
-   ```bash
-   cd data_analyst_agent
-   ```
-
-2. **Create and activate a virtual environment**:
-   ```bash
-   # Windows
-   python -m venv .venv
-   .venv\Scripts\activate
-
-   # Linux / macOS
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- Python 3.10+ (tested on 3.11/3.12/3.14)
+- Node.js 18+ **or** Bun (frontend; `npm` is preconfigured via `package-lock.json`)
+- API key for **at least one** provider: OpenAI-compatible, Groq, or Gemini
+  (the core profiling/analysis path also runs fully offline with pandas).
+- Optional (only if you re-enable PDF with `ENABLE_PDF=1`): WeasyPrint native
+  libs — `libpango`, `libpangocairo`, `libcairo`, `libgdk-pixbuf` (installed in
+  the Dockerfile already).
 
 ---
 
-## 🔑 7. Environment Variables & Configuration
+## 🚀 Installation & Setup
 
-Create a `.env` file in the project root (`data_analyst_agent/.env`):
+### Backend
 
-```ini
-# --- LLM Provider API Keys (Ordered Fallback: Groq -> Gemini -> OpenAI) ---
-GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
-
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_BASE_URL=your_base_url_here
-MODEL=gemini-2.5-flash
-
-# --- Application Configuration ---
-OUTPUT_DIR=output/profiles
-MAX_FILE_SIZE_MB=50
-```
-
-> [!NOTE]
-> The LLM factory (`tools/llm_factory.py`) automatically evaluates available API keys in order. You only need at least one valid key (`GROQ_API_KEY`, `GEMINI_API_KEY`, or `OPENAI_API_KEY`) to run the system.
-
----
-
-## 🖥️ 8. Running the Application
-
-### Option A: Streamlit Dashboard UI (Recommended)
-Run the full 5-tab interactive web interface:
 ```bash
-streamlit run app.py
-```
-Open your browser at `http://localhost:8501`.
+# 1. Create + activate a venv
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
 
-### Option B: FastAPI Backend Server
-Run the production REST API server:
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Configure keys
+cp .env.example .env              # then fill in your API keys
+```
+
+### Frontend
+
 ```bash
-uvicorn api.main:app --reload --port 8000
+cd frontend
+npm install                       # or: bun install
+npm run dev                       # dev server -> http://localhost:5173
 ```
-- API Base URL: `http://localhost:8000`
-- Interactive OpenAPI Docs: `http://localhost:8000/docs`
 
-### Option C: Standalone CLI Execution
-Run the full multi-agent pipeline directly on `data/sample_sales.csv`:
+---
+
+## 🔑 Environment Variables
+
+Copy `.env.example` → `.env`. Highlights:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | — | Primary OpenAI-compatible provider (GitHub/NVIDIA/other) |
+| `GROQ_API_KEY`, `GEMINI_API_KEY` | — | Automatic fallbacks on primary failure |
+| `MODEL` | `nvidia/nemotron-mini-4b-instruct` | Default model name |
+| `LLM_PROFILER` / `LLM_PLANNER` / `LLM_REFLECTOR` | unset | Opt deterministic steps back into the LLM |
+| `LLM_BUDGET_US`, `LLM_MIN_INTERVAL_S` | `1.0` / `1.0` | Spend cap + pacing |
+| `LLM_CACHE_ENABLED`, `LLM_CACHE_CAP`, `LLM_CACHE_TTL_S` | off / 512 / 7d | Response cache |
+| `EXECUTION_TIMEOUT`, `EXEC_CPU_LIMIT_S`, `EXEC_MEM_LIMIT_MB` | 30 / 30 / 1536 | Sandbox limits |
+| `RECOMPUTE_TOLERANCE`, `RECOMPUTE_ABS_TOLERANCE` | `0.03` / `1e-4` | Verify-by-recompute gate |
+| `ENABLE_PDF` | off | Opt-in WeasyPrint PDF (default: HTML only) |
+| `API_BEARER_TOKEN` | empty | Bearer auth for `/analyze` + `/chat` (disabled if empty) |
+| `ALLOWED_ORIGINS` | `*` | CORS allowlist (comma-separated for prod) |
+| `LANGSMITH_TRACING_V2`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | off | LangSmith observability |
+
+---
+
+## 🖥️ Running the Application
+
+### Option A — Full stack (React UI + FastAPI)
+
+```bash
+# Terminal 1 — Backend
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2 — Frontend (dev)
+cd frontend && npm run dev
+```
+
+Open `http://localhost:5173` (UI) and `http://localhost:8000/docs` (API).
+
+### Option B — Backend only (serves the built `frontend/dist` at `/` if present)
+
+```bash
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Option C — Streamlit dashboard
+
+```bash
+streamlit run app.py          # -> http://localhost:8501
+```
+
+### Option D — CLI pipeline (no server)
+
 ```bash
 python graph.py
 ```
 
 ---
 
-## 🧪 9. Running Tests
+## ☁️ Deployment
 
-The repository includes **55 test items** covering input validation, LLM fallback, execution sandboxing, report generation, and chat grounding.
+### Backend → Azure Container Apps (GitHub Actions)
 
-### Run all tests:
+`.github/workflows/deploy-backend.yml` builds and pushes the Docker image to
+**Azure Container Registry** and deploys it to **Azure Container Apps**
+(`centralindia`). Secrets (`AZURE_CREDENTIALS`, LLM keys, LangSmith keys) are
+injected as env vars.
+
+Manual equivalent (see `deploy/azure-deploy.sh`):
+
 ```bash
-pytest
+az login
+./deploy/azure-deploy.sh
 ```
 
-### Run specific agent test suites:
-```bash
-# Profiler Agent tests
-pytest tests/profiler/
+### Frontend → Vercel
 
-# Analysis Agent tests
-pytest tests/analysis/
-
-# Insight Agent, Validation, & Chat tests
-pytest tests/insight/
-
-# Pipeline integration tests
-pytest tests/pipeline/
-```
-
-### Offline / No-API-Key Test Mode
-Tests under `tests/insight/` use a deterministic stub model (`FakeChatModel`) and mock fixtures (`fixtures.py`), allowing you to test the complete validation, report compilation, and chat logic offline without making LLM API calls.
+The `frontend/` folder deploys as a Vite/TanStack app to Vercel (see
+`frontend/vercel.json`). Set `VITE_API_BASE_URL` to the deployed API base URL at
+build time so the app can reach `/analyze` and `/report` across origins.
 
 ---
 
-## 💡 10. Usage Examples
+## 📡 API Reference
 
-### Executing the Pipeline Programmatically
-```python
-from graph import create_pipeline
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/health` | — | Liveness + agent status list |
+| `POST` | `/analyze` | Bearer† | Upload CSV → run full pipeline → profile, insights, report links |
+| `GET` | `/report/{filename}` | — | Serve a generated HTML report (searches `REPORT_DIR` then `PROFILE_DIR`) |
+| `GET` | `/config` | — | Effective runtime config (`snapshot()`), non-secret |
+| `POST` | `/chat` | Bearer† | Report-grounded Q&A |
 
-# Initialize pipeline with automatic resilient LLM fallback
-pipeline = create_pipeline()
+† Only enforced when `API_BEARER_TOKEN` is set.
 
-# Define initial state with target CSV
-initial_state = {
-    "csv_path": "data/sample_sales.csv",
-    "status": "running",
-    "error_log": [],
-    "thinking_log": []
-}
-
-# Run execution
-final_state = pipeline(initial_state)
-
-# Access output details
-print("Report Status :", final_state.get("report_status"))
-print("HTML Report   :", final_state.get("report_path"))
-print("PDF Report    :", final_state.get("pdf_path"))
-print("Insights Count:", len(final_state.get("insights", [])))
-```
+`/analyze` response links:
+- `report_url` → the **Sweetviz profile report** (primary deliverable).
+- `summary_report_url` → the fallback/summary page (when a distinct summary was
+  produced).
+- `profile_report_url` → the Sweetviz report filename explicitly.
 
 ---
 
-## 🧩 11. Important Modules & Components
+## 🧪 Tests
 
-- `tools/llm_factory.py`: Implements `ResilientFallbackModel`, wrapping multiple providers to try models sequentially (`Groq → Gemini → OpenAI`) on error or rate limits.
-- `tools/python_executor.py`: Subprocess sandbox executing generated analysis code. Sanitizes code (removes redundant `pd.read_csv` calls), enforces a 30-second execution timeout, and captures new image files in `output/analysis/`.
-- `agents/insight/validation.py`: Deterministic verification engine. Validates numeric bounds, percentage ranges $[0, 100]$, correlation coefficients $[-1, 1]$, and column types without LLM intervention.
-- `agents/insight/report_generator.py`: Compiles reports via Jinja2. Converts chart images to Base64 data URIs for self-contained, offline-compatible HTML and PDF reports.
-- `agents/insight/chat.py`: Grounds chat responses strictly on the serialized report context.
+> **116 tests, 4 markers** (`slow`, `integration`), strict markers via `pytest.ini`.
+
+```bash
+venv/bin/python -m pytest -q          # full suite
+venv/bin/python -m pytest tests/insight/      # M3 (offline, FakeChatModel)
+venv/bin/python -m pytest tests/tools/test_sandbox_security.py  # sandbox AST gate
+venv/bin/python -m pytest tests/pipeline/test_graph.py          # LangGraph integration
+```
+
+> ⚠️ `tests/llm/test_llm.py::test_langsmith_disabled_by_default` is environment
+> dependent — it expects `LANGSMITH_TRACING_V2` unset. Deselect it with
+> `--deselect tests/llm/test_llm.py::test_langsmith_disabled_by_default` when
+> tracing is enabled locally.
 
 ---
 
-## 📊 12. Reports & Outputs
+## 📊 Reports & Outputs
 
-All generated artifacts are saved in the `output/` directory:
+All artifacts land under `output/`:
 
-- `output/profiles/`: Interactive `ydata-profiling` HTML reports (e.g., `sample_sales_profile.html`).
-- `output/analysis/`: Visualization images generated by executed Python code (e.g., PNG/JPG charts).
-- `output/reports/`: Executive HTML and PDF reports compiled by the Insight agent (e.g., `sample_sales_report.html`, `sample_sales_report.pdf`).
-
----
-
-## 🛡️ 13. Error Handling & Graceful Degradation
-
-- **LLM Failures**: If the primary LLM provider fails or hits rate limits, `ResilientFallbackModel` seamlessly routes requests to the next configured provider.
-- **Wide/Large CSVs**: If LLMs fail during profiling due to context window size, `profiler_node` falls back to `_build_profile_from_pandas`, constructing the dataset profile strictly via pandas.
-- **Analysis Execution Errors**: If Python code fails during execution, `executor_node` captures stderr and passes it to an LLM error-fix prompt for up to 3 retry attempts before marking the task failed.
-- **Validation Warnings**: If validation detects issues, `insight_node` sets `report_status` to `"degraded"` and continues building the report using verified evidence entries.
-- **WeasyPrint PDF Fallback**: If native PDF libraries (`Pango`/`Cairo`) are missing, `report_generator` catches the exception, logs a warning, sets `pdf_path = None`, and delivers the complete HTML report.
+- `output/profiles/*_profile.html` — **Sweetviz interactive report (primary).**
+- `output/reports/*_report.html` — summary page (secondary/fallback).
+- `output/reports/*_report.pdf` — only when `ENABLE_PDF=1` + weasyprint available.
+- `output/analysis/*.png|jpg` — charts generated by the executor sandbox.
+- `output/llm_cache.json` — cached deterministic LLM responses.
 
 ---
 
-## 📋 14. Known Limitations
+## 🛡️ Reliability & Graceful Degradation
 
-- **WeasyPrint Native Dependencies**: PDF export depends on WeasyPrint, which requires GTK+/Pango libraries on Windows/Linux. If not present, PDF generation is skipped (HTML report is always preserved).
-- **Execution Sandbox Timeout**: Python code execution times out after 30 seconds per task.
-- **Prompt Token Capping**: For datasets with over 80 columns, `_extract_df_info` truncates printed dtypes and sample previews to fit comfortably within LLM context windows.
+- **LLM outage / rate limits** → automatic provider failover + deterministic
+  pandas fallback for profiling/analysis; `insight_node` emits a *degraded*
+  report from logs rather than crashing.
+- **Failed upstream** → control routes straight to Insight so a degraded-but-
+  useful report is always produced.
+- **Missing chart files** → `collect_charts` only embeds files that exist; a
+  dead `<img>` is impossible.
+- **Missing timestamps / wide CSVs** → descriptive stats always recomputed from
+  pandas, overriding any LLM guess.
+- **Sandbox violations** → AST security gate rejects code before execution and
+  surfaces a safe error dict.
+- **Report compile failure** → HTML is still delivered, `report_status` is set,
+  and PDF is skipped without breaking the response.
 
 ---
 
-## 🔮 15. Future Improvements
+## 🔄 Recent Improvements
 
-- Support for multi-file CSV uploads and relational database connectors.
-- Dockerized sandbox containers for stricter execution isolation.
+- **Sweetviz report is the primary HTML deliverable**; the weaker summary page
+  is kept as a fallback (`summary_report_path`).
+- **PDF export** disabled by default (`ENABLE_PDF`), fully removable.
+- **LangSmith tracing** + `_tracing_metadata`/RunnableConfig threading.
+- **Sandbox AST security gate** (`SecurityError`) + fixed `_rlimits` CPU limit
+  bug (27 security tests).
+- **Verify-by-recompute** with configurable `RECOMPUTE_TOLERANCE` /
+  `RECOMPUTE_ABS_TOLERANCE` (9 tests).
+- **Centralized `config.py`** — single source of truth for paths + tunables.
+- **LLM cache** with TTL, atomic writes, FIFO cap, and legacy-schema migration.
+- **LLM budget** caps/warnings and `__budget__` summary in `llm_calls`.
+- **CORS allowlist** via `ALLOWED_ORIGINS`, bearer-token auth, `/config` endpoint.
+- `pdf_status` field (`ok | skipped | failed`) in the shared state contract.
 
-### 1. Run FastAPI Backend
-```bash
-python -m uvicorn api.main:app --reload --port 8000
-```
+---
 
-### 2. Run React Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## ⚠️ Known Limitations
 
+- **Sandbox is subprocess-level** (POSIX rlimits + AST gate), not a full
+  container/isolation boundary.
+- **`RECOMPUTE_TOLERANCE`** may reject valid insights on heavily rounded
+  upstream stats — raise it if you see spurious drops.
+- **PDF (optional)** needs native Pango/Cairo libs.
+- The frontend **blob download** relies on CORS — set `ALLOWED_ORIGINS` to your
+  frontend origin when the UI and API are cross-origin.
 
-### 1. Run FastAPI Backend
-```bash
-python -m uvicorn api.main:app --reload --port 8000
-```
+---
 
-### 2. Run React Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## 🔮 Roadmap
 
-### 3. Run Streamlit App (Alternative UI)
-```bash
-streamlit run app.py
-```
-
-### 4. Run Test Suite
-```bash
-pytest
-```
-
-## Shared state contract
-Single source of truth: `state.py` (or `state/graph_state.py`) re-exported so all agents import `AgentState` from one place.
-
-## Setup / env
-Set the relevant LLM keys in `.env`: `OPENAI_API_KEY`, `GROQ_API_KEY`, or `GEMINI_API_KEY`.
+- Lazy/Dockerized sandbox containers for stricter isolation.
+- Parallel analysis execution within the LangGraph executor.
+- Multi-file uploads and database connectors.
+- More diverse edge-case datasets in the test fixtures.
+- Streamlit → React parity for diagnostics/chat features.
