@@ -91,18 +91,24 @@ jobs:
           docker push "${ACR_SERVER}/${APP_NAME}:latest"
           echo "✓ Image pushed: ${ACR_SERVER}/${APP_NAME}:${IMAGE_TAG}"
 
-      # ── 7. Create Container Apps Environment (skip if exists) ────
-      - name: Create Container Apps Environment
+      # ── 7. Get or Create Container Apps Environment ───────────────
+      - name: Get or Create Container Apps Environment
         run: |
-          if az containerapp env show --name "$APP_ENV_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-            echo "✓ Environment already exists: $APP_ENV_NAME"
+          # Discover if a Managed Environment already exists anywhere in the subscription
+          ENV_ID=$(az resource list --resource-type "Microsoft.App/managedEnvironments" --query "[0].id" --output tsv 2>/dev/null || echo "")
+
+          if [ -n "$ENV_ID" ]; then
+            echo "✓ Found existing Container App Environment ID: $ENV_ID"
+            echo "TARGET_ENV=$ENV_ID" >> $GITHUB_ENV
           else
+            echo "Creating new environment '$APP_ENV_NAME' in '$RESOURCE_GROUP'..."
             az containerapp env create \
               --name "$APP_ENV_NAME" \
               --resource-group "$RESOURCE_GROUP" \
               --location "$LOCATION" \
               --output none
             echo "✓ Environment created: $APP_ENV_NAME"
+            echo "TARGET_ENV=$APP_ENV_NAME" >> $GITHUB_ENV
           fi
 
       # ── 8. Deploy or Update Container App ────────────────────────
@@ -131,11 +137,11 @@ jobs:
               --output none
             echo "✓ Image updated to $IMAGE_FULL"
           else
-            echo "Creating new Container App..."
+            echo "Creating new Container App in environment '$TARGET_ENV'..."
             az containerapp create \
               --name "$APP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
-              --environment "$APP_ENV_NAME" \
+              --environment "$TARGET_ENV" \
               --image "$IMAGE_FULL" \
               --registry-server "$ACR_SERVER" \
               --registry-username "$ACR_USER" \
