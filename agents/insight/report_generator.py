@@ -127,6 +127,9 @@ def write_report(state: Dict[str, Any], output_dir: str) -> Dict[str, Any]:
         state["validation_report"] = validation
 
     report_status = state.get("report_status", "ok")
+    if report_status == "pending":
+        report_status = "ok"
+
     if validation.get("errors"):
         report_status = "degraded"
     elif state.get("status") == "failed" and report_status == "ok":

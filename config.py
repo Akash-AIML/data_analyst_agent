@@ -114,7 +114,7 @@ PROFILE_MAX_FILE_SIZE_MB: float = _float("MAX_FILE_SIZE_MB", 50.0)
 PROFILE_PAIRWISE_COL_LIMIT: int = _int("PAIRWISE_COL_LIMIT", 15)
 
 # Reporting tunables.
-ENABLE_PDF: bool = _bool("ENABLE_PDF", False)
+ENABLE_PDF: bool = _bool("ENABLE_PDF", True)
 
 # API tunables.
 API_MAX_FILE_SIZE_MB: float = _float("MAX_FILE_SIZE_MB", 200.0)
