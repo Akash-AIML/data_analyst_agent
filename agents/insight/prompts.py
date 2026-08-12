@@ -23,7 +23,6 @@ from pydantic import BaseModel, Field
 
 from llm import structured_invoke as _structured_invoke
 
-
 # ---------------------------------------------------------------------------
 # Output schemas
 # ---------------------------------------------------------------------------
@@ -163,7 +162,7 @@ def structured_invoke(chat: BaseChatModel, schema: type[BaseModel], prompt: str)
 
 # alias to keep signature/semantics readable
 _central_structured_invoke = _structured_invoke
-    
+
 
 def generate_insights(
     chat: BaseChatModel,

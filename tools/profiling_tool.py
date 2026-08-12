@@ -1,12 +1,13 @@
-import os
-import io
 import contextlib
+import io
+import os
+from typing import Type
+
 import pandas as pd
 import sweetviz as sv
-from langchain.tools import BaseTool
-from typing import Type
-from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from langchain.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from config import PROFILE_DIR, PROFILE_MAX_FILE_SIZE_MB, PROFILE_PAIRWISE_COL_LIMIT
 
@@ -77,7 +78,6 @@ class ProfilingTool(BaseTool):
                 total_rows = 0
                 sample_per_chunk = 5000
                 target_total = 50000
-                encoding = "utf-8"
                 try:
                     reader = pd.read_csv(csv_path, chunksize=20000, encoding="utf-8")
                     for chunk in reader:
@@ -147,5 +147,4 @@ class ProfilingTool(BaseTool):
 
 def sweetviz_analyze(df: pd.DataFrame, pairwise_analysis: str = "on"):
     """Thin wrapper over ``sweetviz.analyze`` so the tool stays swappable."""
-    import sweetviz as sv
     return sv.analyze(df, pairwise_analysis=pairwise_analysis)

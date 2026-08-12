@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import os
-import pytest
 
-from tools.profiling_tool import ProfilingTool
+from agents.analysis.agent import executor_node, planner_node
 from agents.profiler.agent import profiler_node
-from agents.analysis.agent import planner_node, executor_node
 from state import AgentState
+from tools.profiling_tool import ProfilingTool
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "csvs")
 

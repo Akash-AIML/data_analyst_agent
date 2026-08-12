@@ -28,12 +28,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from ui.components.header import render_header
-from ui.components.pipeline_runner import render_pipeline_runner
-from ui.components.eda_profile import render_eda_profile
-from ui.components.insights_gallery import render_insights_gallery
-from ui.components.analyst_chat import render_analyst_chat
-from ui.components.diagnostics import render_diagnostics
+from ui.components.analyst_chat import render_analyst_chat  # noqa: E402
+from ui.components.diagnostics import render_diagnostics  # noqa: E402
+from ui.components.eda_profile import render_eda_profile  # noqa: E402
+from ui.components.header import render_header  # noqa: E402
+from ui.components.insights_gallery import render_insights_gallery  # noqa: E402
+from ui.components.pipeline_runner import render_pipeline_runner  # noqa: E402
 
 
 def main():

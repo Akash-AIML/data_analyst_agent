@@ -1,9 +1,8 @@
 """Tab 4 component: Report-grounded analyst chatbot for interactive dataset Q&A."""
 
 import streamlit as st
-from agents.insight import chat
-from tests.insight.fake_llm import FakeChatModel
 
+from agents.insight import chat
 
 
 def _get_chat_model():

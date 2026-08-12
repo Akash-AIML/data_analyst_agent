@@ -17,18 +17,18 @@ metadata/tags for filtering in the LangSmith UI.
 
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 
-from state import AgentState
-from agents.profiler.agent import profiler_node
-from agents.analysis.agent import planner_node, executor_node, reflector_node
+from agents.analysis.agent import executor_node, planner_node, reflector_node
 from agents.insight.insight_node import build_insight_node
-from llm import LANGSMITH_PROJECT, _tracing_metadata
+from agents.profiler.agent import profiler_node
+from llm import _tracing_metadata
+from state import AgentState
 
 
 def _default_runnable_config(state: AgentState,

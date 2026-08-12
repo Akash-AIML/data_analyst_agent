@@ -4,21 +4,19 @@ Profiler Agent — LangGraph Node (Member 1)
 Reads:  state["csv_path"]
 Writes: state["profile"], state["profile_report_path"], state["error_log"], state["status"]
 """
-import re as _re
-
-import os
 import logging
-from typing import Dict, Any
+import os
+import re as _re
+from typing import Any, Dict
 
 import pandas as pd
 from dotenv import load_dotenv
 
-from state import AgentState
-from tools.profiling_tool import ProfilingTool
 from agents.profiler.prompts import PROFILER_SYSTEM_PROMPT, PROFILER_USER_PROMPT_TEMPLATE
 from agents.profiler.schemas import ProfileOutput
 from llm import build_chat_model, structured_invoke
-
+from state import AgentState
+from tools.profiling_tool import ProfilingTool
 
 # ---------------------------------------------------------------------------
 # Environment & logging
@@ -89,7 +87,6 @@ def _extract_df_info(df: pd.DataFrame, csv_path: str) -> Dict[str, Any]:
     missing_nonzero = missing_counts[missing_counts > 0]
 
     numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
-    non_numeric_cols = [c for c in df.columns if c not in numeric_cols]
 
     # Always limit describe to numeric cols only (no string columns that bloat the output)
     # and cap at 20 columns to stay well within context limits
@@ -160,7 +157,9 @@ def _build_profile_from_pandas(df: pd.DataFrame, csv_path: str) -> dict:
         elif dtype == "object":
             # Try datetime parse on a sample (suppress non-critical format warnings)
             try:
-                import warnings as _w, pandas as _pd
+                import warnings as _w
+
+                import pandas as _pd
                 with _w.catch_warnings():
                     _w.simplefilter("ignore")
                     _pd.to_datetime(df[col].dropna().head(20), errors="raise")

@@ -10,7 +10,6 @@ from tests.insight import fixtures
 from tests.insight.fake_llm import FakeChatModel
 
 
-
 @pytest.fixture(scope="module")
 def healthy_state():
     return build_insight_node(FakeChatModel())(fixtures.healthy_state())
@@ -44,7 +43,7 @@ def test_build_context_includes_errors_when_present(failed_state):
 
 def _report_block(ctx: str) -> str:
     lines = ctx.splitlines()
-    start = next(i for i, l in enumerate(lines) if l.strip() == "=== REPORT ===")
+    start = next(i for i, line in enumerate(lines) if line.strip() == "=== REPORT ===")
     return "\n".join(lines[start:])
 
 

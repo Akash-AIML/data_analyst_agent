@@ -87,7 +87,6 @@ def task_to_result(task: AnalysisTask | Dict[str, Any], stats: Dict[str, Any],
         name = task.task_name
         col = task.column
         task_id = task.task_id
-        title = f"{name}"
     else:
         name = task.get("task_name", "generic")
         col = task.get("column")

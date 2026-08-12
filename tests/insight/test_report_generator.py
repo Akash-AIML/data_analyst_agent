@@ -10,7 +10,6 @@ from agents.insight import report_generator
 from tests.insight import fixtures
 
 
-
 @pytest.fixture(scope="module")
 def out_dir(tmp_path_factory):
     d = tmp_path_factory.mktemp("reports")

@@ -8,8 +8,7 @@ import pytest
 
 from agents.insight.insight_node import build_insight_node
 from tests.insight import fixtures
-from tests.insight.fake_llm import FakeChatModel, RECOMMENDATIONS_JSON as _r
-
+from tests.insight.fake_llm import FakeChatModel
 
 
 @pytest.fixture()

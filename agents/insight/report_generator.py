@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from agents.insight.validation import validate_results
-from config import REPORT_DIR, ENABLE_PDF
+from config import ENABLE_PDF
 
 logger = logging.getLogger(__name__)
 

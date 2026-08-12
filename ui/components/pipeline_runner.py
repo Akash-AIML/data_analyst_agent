@@ -1,11 +1,13 @@
 """Tab 1 component: Handles dataset selection, file uploading, and non-blocking pipeline execution."""
 
 import os
+
 import streamlit as st
+
 from ui.services.pipeline_service import (
-    save_uploaded_csv,
-    run_pipeline,
     get_available_samples,
+    run_pipeline,
+    save_uploaded_csv,
 )
 
 
@@ -39,7 +41,7 @@ def render_pipeline_runner():
         if uploaded_path and os.path.exists(uploaded_path):
             upload_key = f"📎 Uploaded: {uploaded_file.name}"
             combined_options[upload_key] = uploaded_path
-        
+
         combined_options.update(samples)
 
         selected_sample = st.selectbox(

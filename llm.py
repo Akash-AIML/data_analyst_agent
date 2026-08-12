@@ -30,12 +30,11 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Sequence, Type, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
-
+from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
 load_dotenv(override=True)
@@ -322,7 +321,6 @@ def build_chat_model(task: str = "DEFAULT", temperature: float = 0.2) -> BaseCha
     """
     # --- primary: OpenAI-compatible endpoint ---
     openai_key = os.getenv("OPENAI_API_KEY", "")
-    default_model = _task_model(task)
 
     groq_key = os.getenv("GROQ_API_KEY", "")
     groq_llm = None
@@ -679,7 +677,6 @@ def _json_invoke(model: BaseChatModel, schema: type[BaseModel], messages: Any,
     """
     hint = _schema_shape_hint(schema)
     wrap_field = _list_container_field(schema)
-    last_text = ""
     last_msg: Any = None
     invoke_cfg = {"metadata": metadata} if metadata else None
     for attempt in range(attempts):
@@ -692,7 +689,6 @@ def _json_invoke(model: BaseChatModel, schema: type[BaseModel], messages: Any,
         reply = model.invoke(json_prompt, config=invoke_cfg)
         last_msg = reply
         text = _extract_text(reply)
-        last_text = text
         data = _json_from_text(text)
         if isinstance(data, list) and wrap_field:
             # small models often return the bare list of items instead of the
@@ -731,7 +727,8 @@ def _coerce_string_fields(schema: type[BaseModel], data: Any) -> Any:
     a quoted number string. If a declared ``str`` field got a dict/list here we
     stringify it so the subsequent Pydantic validation still passes.
     """
-    from typing import List as _TList, get_origin as _get_origin
+    from typing import List as _TList
+    from typing import get_origin as _get_origin
     if not isinstance(data, dict):
         return data
 
