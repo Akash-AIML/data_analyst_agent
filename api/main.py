@@ -362,8 +362,12 @@ def chat_endpoint(payload: dict = Body(...)):
     if recommendations:
         grounding_lines.append("Strategic recommendations:")
         for i, rec in enumerate(recommendations[:5], 1):
-            action = rec.get("action") or str(rec)
-            impact = rec.get("impact") or ""
+            if isinstance(rec, dict):
+                action = rec.get("title") or rec.get("action") or str(rec)
+                impact = rec.get("body") or rec.get("impact") or ""
+            else:
+                action = str(rec)
+                impact = ""
             grounding_lines.append(
                 f"  R-{i:02d}: {action}" + (f" | Impact: {impact}" if impact else "")
             )

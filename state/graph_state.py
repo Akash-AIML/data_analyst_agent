@@ -40,7 +40,7 @@ class AgentState(TypedDict, total=False):
     # --- M3 Insight & Report -------------------------------------------
     validation_report: Dict[str, Any]
     insights: List[Dict[str, Any]]
-    recommendations: List[str]
+    recommendations: List[Dict[str, Any]]
     report_path: str
     pdf_path: Optional[str]
     pdf_status: str  # "ok" | "skipped" | "failed"
@@ -76,7 +76,7 @@ class StateContract(BaseModel):
     reflection_notes: List[str] = Field(default_factory=list)
     validation_report: Dict[str, Any] = Field(default_factory=dict)
     insights: List[Dict[str, Any]] = Field(default_factory=list)
-    recommendations: List[str] = Field(default_factory=list)
+    recommendations: List[Dict[str, Any]] = Field(default_factory=list)
     report_path: Optional[str] = None
     pdf_path: Optional[str] = None
     pdf_status: str = "ok"
@@ -87,7 +87,7 @@ class StateContract(BaseModel):
     status: str = "in_progress"
 
     @field_validator(
-        "generated_files", "reflection_notes", "recommendations",
+        "generated_files", "reflection_notes",
         "error_log", "thinking_log", mode="before",
     )
     @classmethod

@@ -242,10 +242,13 @@ def _validate_one(
                 all_ok = False
         elif isinstance(corr, dict):
             for k, v in corr.items():
-                if _is_number(v) and not (-1.0 <= v <= 1.0):
-                    chk.add(f"{prefix}_corr_bounds", False,
-                            f"correlation {k}={v:.3f} outside [-1, 1]")
-                    all_ok = False
+                if _is_number(v):
+                    if math.isnan(v):
+                        chk.warn(f"{prefix}_corr_nan", f"correlation {k} is NaN (constant column?)")
+                    elif not (-1.0 <= v <= 1.0):
+                        chk.add(f"{prefix}_corr_bounds", False,
+                                f"correlation {k}={v:.3f} outside [-1, 1]")
+                        all_ok = False
 
     elif kind == "mean":
         value = stats.get("value")
@@ -262,7 +265,7 @@ def _validate_one(
                 all_ok = False
             _check_column(chk, prefix, title, col, all_profile_cols, num_cols)
 
-    elif kind in ("percentage", "share", "missing_rate"):
+    elif kind in ("percentage", "share", "missing_rate", "missing", "missing_values"):
         value = stats.get("value")
         if _is_number(value) and not (0.0 <= value <= 100.0):
             chk.add(f"{prefix}_pct_bounds", False,

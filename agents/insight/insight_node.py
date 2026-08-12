@@ -155,7 +155,7 @@ def _generate_insights(llm: Any, evidence: List[Dict[str, Any]],
 
 
 def _generate_recommendations(llm: Any, insights: List[Dict[str, Any]],
-                              state: Dict[str, Any]) -> List[str]:
+                              state: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not insights:
         _thinking(state, "no insights - skipping recommendations")
         return []
@@ -164,12 +164,9 @@ def _generate_recommendations(llm: Any, insights: List[Dict[str, Any]],
     except Exception as exc:  # noqa: BLE001
         _log_error(state, f"recommendation generation failed: {exc}")
         return []
-    out: List[str] = []
+    out: List[Dict[str, Any]] = []
     for r in recs:
-        label = f"{r.title}: {r.body}"
-        if r.insight_id in {i.get("id") for i in insights}:
-            label += f" (from insight #{r.insight_id})"
-        out.append(label)
+        out.append(r.model_dump())
     return out
 
 
