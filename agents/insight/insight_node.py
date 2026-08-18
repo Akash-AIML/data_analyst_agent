@@ -10,6 +10,7 @@ fully deterministic without an API key.
 
 from __future__ import annotations
 
+import logging
 import traceback
 from typing import Any, Callable, Dict, List
 
@@ -18,15 +19,18 @@ from agents.insight.validation import extract_evidence, validate_results
 from agents.insight.verify import verify_by_recompute
 from config import REPORT_DIR
 
+logger = logging.getLogger(__name__)
 DEFAULT_OUTPUT_DIR = REPORT_DIR
 
 
 def _thinking(state: Dict[str, Any], message: str) -> None:
     """Log the node's reasoning for the agentic-narrative requirement."""
+    logger.info("[INSIGHT] %s", message)
     state["thinking_log"] = (state.get("thinking_log") or []) + [f"insight: {message}"]
 
 
 def _log_error(state: Dict[str, Any], message: str) -> None:
+    logger.error("[INSIGHT] %s", message)
     state["error_log"] = (state.get("error_log") or []) + [message]
 
 
@@ -58,15 +62,13 @@ def build_insight_node(
 
 
         # 1) Deterministic validation -------------------------------------------------
-        _thinking(state, "running deterministic validation")
+        _thinking(state, "starting deterministic validation of analysis results")
         try:
             validation = validate_results(profile, results)
             state["validation_report"] = validation
-        except Exception:  # noqa: BLE001
-            _log_error(state, f"validation crashed: {traceback.format_exc(limit=1)}")
+        except Exception:  # noqa: BLE001 - robust degradation
             validation = {
-                "status": "failed",
-                "checks": [],
+                "checks": {},
                 "warnings": [],
                 "errors": [f"validation crashed: {traceback.format_exc(limit=1)}"],
             }
@@ -97,15 +99,17 @@ def build_insight_node(
         _thinking(state, f"generating insights from {len(evidence)} evidence entries")
         insights = _generate_insights(llm, evidence, state)
 
-        # 4) Recommendations --------------------------------------------------------------
-        _thinking(state, "generating recommendations")
-        state["recommendations"] = _generate_recommendations(llm, insights, state)
-
-        # 5) Self-consistency ------------------------------------------------------------
-        _thinking(state, "running self-consistency audit")
-        state["contradictions"] = _generate_consistency(llm, insights, state)
+        # 4 & 5) Recommendations & Self-consistency in parallel ------------------------
+        _thinking(state, "generating recommendations and consistency audit in parallel")
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_recs = pool.submit(_generate_recommendations, llm, insights, state)
+            fut_cons = pool.submit(_generate_consistency, llm, insights, state)
+            state["recommendations"] = fut_recs.result()
+            state["contradictions"] = fut_cons.result()
 
         # 6) Report ----------------------------------------------------------------------
+        _thinking(state, "compiling final report")
         return _write_report(state, output_dir)
 
     return insight_node

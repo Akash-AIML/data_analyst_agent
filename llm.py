@@ -37,7 +37,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
-load_dotenv(override=True)
+if not os.getenv("PYTEST_CURRENT_TEST"):
+    load_dotenv()
 
 
 # ---------------------------------------------------------------------------
@@ -276,8 +277,8 @@ class ResilientFallbackModel(BaseChatModel):
 
     primary: Any
     fallback: Any
-    attempt_limit: int = 4
-    primary_rate_retries: int = 3
+    attempt_limit: int = 2
+    primary_rate_retries: int = 2
 
     @property
     def _llm_type(self) -> str:
@@ -293,7 +294,7 @@ class ResilientFallbackModel(BaseChatModel):
                 if not _is_rate_limit(exc):
                     break
                 if attempt < self.primary_rate_retries - 1:
-                    time.sleep(min(2 ** (attempt + 1), 20))
+                    time.sleep(1)
 
         # primary exhausted its retries -> try fallback with backoff
         for attempt in range(1, self.attempt_limit + 1):
@@ -302,7 +303,7 @@ class ResilientFallbackModel(BaseChatModel):
             except Exception as fb_err:  # noqa: BLE001
                 if attempt >= self.attempt_limit:
                     raise fb_err from (first_fail or fb_err)
-                time.sleep(min(2 ** attempt, 12))
+                time.sleep(1)
 
     @property
     def model(self) -> str:  # informational alias for logging
@@ -332,6 +333,7 @@ def build_chat_model(task: str = "DEFAULT", temperature: float = 0.2) -> BaseCha
                 groq_api_key=groq_key,
                 temperature=temperature,
                 max_retries=0,
+                request_timeout=float(os.getenv("LLM_TIMEOUT_S", "15.0")),
             )
         except Exception:  # noqa: BLE001
             groq_llm = None
@@ -339,12 +341,16 @@ def build_chat_model(task: str = "DEFAULT", temperature: float = 0.2) -> BaseCha
     if openai_key:
         from langchain_openai import ChatOpenAI
         base_url = _resolve_openai_base_url()
+        # NVIDIA NIM free endpoint queues requests for 30-60s. Cap timeout so we failover quickly to Groq.
+        default_timeout = 8.0 if "nvidia.com" in (base_url or "").lower() else 15.0
+        timeout_s = float(os.getenv("LLM_TIMEOUT_S", str(default_timeout)))
         primary = ChatOpenAI(
             model=os.getenv("MODEL", "gpt-4.1-nano"),
             api_key=openai_key,
             base_url=base_url,
             temperature=temperature,
             max_retries=0,  # fail fast -> fallback handles retries
+            request_timeout=timeout_s,
         )
         if groq_llm:
             return ResilientFallbackModel(primary=primary, fallback=groq_llm)
@@ -358,6 +364,7 @@ def build_chat_model(task: str = "DEFAULT", temperature: float = 0.2) -> BaseCha
         return ChatGoogleGenerativeAI(
             model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
             temperature=temperature,
+            request_timeout=float(os.getenv("LLM_TIMEOUT_S", "15.0")),
         )
 
     raise EnvironmentError(

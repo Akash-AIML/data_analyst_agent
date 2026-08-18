@@ -69,12 +69,15 @@ _CORRELATION = {
     "value": "pairwise pearson correlation of numeric columns",
     "code": """
 import itertools
+import pandas as pd
 nums = df.select_dtypes(include=["number"]).columns.tolist()
 RESULT_JSON = {}
-for _a, _b in itertools.combinations(nums, 2):
-    _corr = df[_a].corr(df[_b])
-    if _corr is not None:
-        RESULT_JSON[f"corr_{_a}_{_b}"] = float(_corr)
+if len(nums) >= 2:
+    _corr_df = df[nums].corr()
+    for _a, _b in itertools.combinations(nums, 2):
+        _val = _corr_df.loc[_a, _b]
+        if pd.notna(_val):
+            RESULT_JSON[f"corr_{_a}_{_b}"] = float(_val)
 """,
 }
 

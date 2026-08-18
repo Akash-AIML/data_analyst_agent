@@ -17,18 +17,23 @@ MAX_OUTPUT_BYTES = 100_000
 _CPU_LIMIT_S = int(os.getenv("EXEC_CPU_LIMIT_S", str(EXECUTION_TIMEOUT)))
 _MEM_LIMIT_MB = int(os.getenv("EXEC_MEM_LIMIT_MB", "1536"))
 
-SANDBOX_TEMPLATE = """
+BASE_SANDBOX_HEADER = """
 import pandas as pd
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend
-import matplotlib.pyplot as plt
-import seaborn as sns
 import json
 import sys
 import traceback
 import os
+"""
 
+PLOT_SANDBOX_HEADER = """
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
+import seaborn as sns
+"""
+
+SANDBOX_BODY = """
 os.makedirs('output/analysis', exist_ok=True)
 
 # Load the data
@@ -267,8 +272,10 @@ def execute_code(code: str, csv_path: str) -> dict:
             "error": f"security policy violation: {exc}",
         }
 
-    # Build the full sandbox script
-    full_script = SANDBOX_TEMPLATE.format(
+    # Build the full sandbox script (only import matplotlib/seaborn when needed)
+    needs_plot = any(kw in code for kw in ("plt", "sns", "matplotlib", "seaborn"))
+    header = BASE_SANDBOX_HEADER + (PLOT_SANDBOX_HEADER if needs_plot else "")
+    full_script = (header + SANDBOX_BODY).format(
         csv_path=os.path.abspath(csv_path).replace('\\', '\\\\'),
         code=code,
     )

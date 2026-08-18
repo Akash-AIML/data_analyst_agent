@@ -240,9 +240,9 @@ def executor_node(state: AgentState) -> AgentState:
         t for t in all_pending
         if template_for(t.get("task_name", ""), profile) is not None
     ]
-    if len(det_tasks) > 1:
+    if len(det_tasks) >= 1:
         logger.info("Running %d deterministic tasks in parallel", len(det_tasks))
-        workers = min(4, len(det_tasks))
+        workers = min(8, len(det_tasks))
         futures = {}
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for t in det_tasks:

@@ -1,5 +1,6 @@
 import contextlib
 import io
+import logging
 import os
 from typing import Type
 
@@ -12,6 +13,7 @@ from pydantic import BaseModel, Field
 from config import PROFILE_DIR, PROFILE_MAX_FILE_SIZE_MB, PROFILE_PAIRWISE_COL_LIMIT
 
 load_dotenv()
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 _OUTPUT_DIR = PROFILE_DIR
 _MAX_FILE_SIZE_MB = PROFILE_MAX_FILE_SIZE_MB
