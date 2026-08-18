@@ -21,6 +21,17 @@ export interface DatasetProfile {
   filename?: string;
   rows?: number;
   columns?: number;
+  qualityScore?: number;
+  numeric?: number;
+  categorical?: number;
+  datetime?: number;
+  boolean?: number;
+  other?: number;
+  duplicates?: number;
+  missingValues?: Record<string, number>;
+  constantColumns?: string[];
+  highCardinalityColumns?: string[];
+  columnStats?: import("@/types").ColumnStat[];
   [key: string]: any;
 }
 
@@ -31,31 +42,27 @@ export interface PipelineConfig {
 }
 
 import {
-  mockChat,
   mockHealth,
-  mockInsights,
-  mockProfile,
-  mockRecommendations,
-  mockVisualizations,
   pipelineStageTemplate,
 } from "@/data/mock";
-import type { ChatMessage, Insight, PipelineStage, Recommendation, ServiceHealth, Visualization } from "@/types";
+import type { ChatMessage, ExecutionLog, Insight, PipelineStage, Recommendation, ServiceHealth, Visualization } from "@/types";
 
 export interface AppState {
   mockMode: boolean;
   selectedModel: string;
   model: string;
-  profile?: DatasetProfile;
+  profile: DatasetProfile | undefined;
   config: PipelineConfig;
   stages: PipelineStage[];
   pipelineStatus: "idle" | "running" | "completed" | "failed";
   insights: Insight[];
   recommendations: Recommendation[];
   visualizations: Visualization[];
-  executionLogs?: ExecutionLog[];
+  executionLogs: ExecutionLog[] | undefined;
+  analysisResults: any[] | undefined;
   pipelineDurationMs: number;
-  reportUrl?: string;        // Sweetviz profile report URL (primary HTML deliverable)
-  profileReportUrl?: string; // Sweetviz profile report URL
+  reportUrl: string | undefined;        // Sweetviz profile report URL (primary HTML deliverable)
+  profileReportUrl: string | undefined; // Sweetviz profile report URL
   lastRunAt: string;
   chat: ChatMessage[];
   health: ServiceHealth[];
@@ -78,18 +85,20 @@ export const useStore = create<AppState>()(
       mockMode: false,
       selectedModel: "gpt-4.1-nano",
       model: "gpt-4.1-nano",
-      profile: mockProfile,
+      profile: undefined,
       config: { maxRetries: 3, temperature: 0.1, timeout: 60 },
       stages: pipelineStageTemplate,
       pipelineStatus: "idle",
-      insights: mockInsights,
-      recommendations: mockRecommendations,
-      visualizations: mockVisualizations,
-      pipelineDurationMs: 21540,
+      insights: [],
+      recommendations: [],
+      visualizations: [],
+      pipelineDurationMs: 0,
       reportUrl: undefined,
       profileReportUrl: undefined,
+      executionLogs: undefined,
+      analysisResults: undefined,
       lastRunAt: new Date().toISOString(),
-      chat: mockChat,
+      chat: [],
       health: mockHealth,
       setMockMode: (v) => set({ mockMode: v }),
       setSelectedModel: (v) => set({ selectedModel: v, model: v }),
@@ -143,6 +152,7 @@ export const useStore = create<AppState>()(
         // Parse columnStats from backend descriptive_stats & column types
         const rawStats = prof.descriptive_stats || prof.descriptiveStats || {};
         const missingMap = prof.missing_values || prof.missingValues || {};
+        const nuniqueMap = prof.nunique_map || prof.nuniqueMap || {};
 
         const numCols: string[] = prof.numeric_columns || prof.numericColumns || [];
         const catCols: string[] = prof.categorical_columns || prof.categoricalColumns || [];
@@ -157,6 +167,7 @@ export const useStore = create<AppState>()(
             ...idCols,
             ...Object.keys(rawStats),
             ...Object.keys(missingMap),
+            ...Object.keys(nuniqueMap),
           ]),
         );
 
@@ -172,19 +183,35 @@ export const useStore = create<AppState>()(
                 ? "datetime"
                 : "other";
           const st = rawStats[name] || {};
+          // Use real distinct count from backend: prefer rawStats.distinct, then nunique_map, then null
+          const distinct = st.distinct ?? nuniqueMap[name] ?? null;
           return {
             name,
             type: type as any,
             missing: missingMap[name] || 0,
-            distinct: isNum ? Math.min(rows || 100, 100) : isCat ? 10 : 50,
+            distinct,
             mean: st.mean ?? null,
             median: st.median ?? null,
             std: st.std ?? null,
             mode: st.mode ?? null,
+            skewness: st.skewness ?? null,
             min: st.min ?? null,
             max: st.max ?? null,
           };
         });
+
+        // Helper: derive severity label from confidence (0..1 float from backend, or 0..100 int from legacy)
+        const _severity = (conf: number | undefined): "critical" | "high" | "medium" | "low" => {
+          const pct = conf !== undefined && conf <= 1 ? conf * 100 : (conf ?? 50);
+          if (pct >= 90) return "high";
+          if (pct >= 75) return "medium";
+          if (pct >= 50) return "low";
+          return "low";
+        };
+        const _confPct = (conf: number | undefined): number => {
+          if (conf === undefined) return 75;
+          return conf <= 1 ? Math.round(conf * 100) : conf;
+        };
 
         const rawInsights = data.insights || [];
         let parsedInsights: Insight[] = rawInsights.map((ins: any, idx: number) => {
@@ -194,7 +221,7 @@ export const useStore = create<AppState>()(
             const body = colonIdx > -1 ? ins.substring(colonIdx + 1).trim() : ins;
             return {
               id: `I-0${idx + 1}`,
-              title: `${category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} Summary`,
+              title: `${category.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())} Summary`,
               explanation: body,
               evidence: body,
               severity: (idx === 0 ? "high" : idx === 1 ? "medium" : "low") as any,
@@ -202,14 +229,19 @@ export const useStore = create<AppState>()(
               targetMetric: category,
             };
           }
+          // Backend Insight schema: {id, title, body, evidence, metric, value, confidence (0..1)}
+          // Legacy / already-mapped: {id, title, explanation, evidence, targetMetric, severity, confidence (0..100)}
+          const explanation = ins.explanation || ins.body || ins.title || "";
+          const targetMetric = ins.targetMetric || ins.target_metric || ins.metric || "analysis";
+          const conf = ins.confidence;
           return {
-            id: ins.id || `I-0${idx + 1}`,
-            title: ins.title || ins.explanation || `Insight ${idx + 1}`,
-            explanation: ins.explanation || ins.title || "",
-            evidence: ins.evidence || "Verified from dataset analysis.",
-            severity: ins.severity || "medium",
-            confidence: ins.confidence || 90,
-            targetMetric: ins.targetMetric || ins.target_metric || "analysis",
+            id: ins.id ? (typeof ins.id === "number" ? `I-${String(ins.id).padStart(2, "0")}` : ins.id) : `I-0${idx + 1}`,
+            title: ins.title || `Insight ${idx + 1}`,
+            explanation,
+            evidence: ins.evidence || `Metric: ${targetMetric}`,
+            severity: ins.severity ?? _severity(conf),
+            confidence: _confPct(conf),
+            targetMetric,
           };
         });
 
@@ -242,7 +274,6 @@ export const useStore = create<AppState>()(
         let parsedRecs: Recommendation[] = rawRecs.map((rec: any, idx: number) => {
           if (typeof rec === "string") {
             const colonIdx = rec.indexOf(":");
-            const category = colonIdx > -1 ? rec.substring(0, colonIdx).trim() : "";
             const body = colonIdx > -1 ? rec.substring(colonIdx + 1).trim() : rec;
             return {
               id: `R-0${idx + 1}`,
@@ -252,12 +283,20 @@ export const useStore = create<AppState>()(
               insightId: `I-0${(idx % Math.max(parsedInsights.length, 1)) + 1}`,
             };
           }
+          // Backend Recommendation schema: {title, body, insight_id}
+          // Legacy: {id, action, impact, severity, insightId}
+          const action = rec.action || rec.title || String(rec);
+          const impact = rec.impact || rec.body || "Actionable improvement based on evidence.";
+          const rawInsightId = rec.insightId || rec.insight_id;
+          const insightId = rawInsightId
+            ? (typeof rawInsightId === "number" ? `I-${String(rawInsightId).padStart(2, "0")}` : rawInsightId)
+            : `I-0${(idx % Math.max(parsedInsights.length, 1)) + 1}`;
           return {
             id: rec.id || `R-0${idx + 1}`,
-            action: rec.action || String(rec),
-            impact: rec.impact || "Actionable improvement based on evidence.",
-            severity: rec.severity || "medium",
-            insightId: rec.insightId || rec.insight_id || "I-01",
+            action,
+            impact,
+            severity: rec.severity ?? (idx === 0 ? "high" : idx === 1 ? "medium" : "low") as any,
+            insightId,
           };
         });
 
@@ -302,6 +341,50 @@ export const useStore = create<AppState>()(
         const reportUrl = reportFilename ? `${API_BASE}/report/${encodeURIComponent(reportFilename)}` : undefined;
         const profileReportUrl = profileReportFilename ? `${API_BASE}/report/${encodeURIComponent(profileReportFilename)}` : undefined;
 
+        // Map analysis_results and generated_files → rich, interactive Visualization objects
+        const rawResults = data.analysis_results || [];
+        const rawCharts: string[] = data.generated_files || [];
+        const parsedVisualizations: import("@/types").Visualization[] = [];
+
+        // 1) Extract structured interactive chart objects from execution stats (with Recharts data points)
+        rawResults.forEach((res: any) => {
+          const stats = res.stats || {};
+          const taskCharts = stats.charts || [];
+          if (Array.isArray(taskCharts) && taskCharts.length > 0) {
+            taskCharts.forEach((tc: any) => {
+              const fname = tc.image_file;
+              parsedVisualizations.push({
+                id: `V-0${parsedVisualizations.length + 1}`,
+                title: tc.title || (tc.column ? `Distribution of ${tc.column}` : "Analysis Chart"),
+                description: `Interactive breakdown for ${tc.column || "dataset"}`,
+                kind: (tc.kind || "bar") as any,
+                insightId: parsedInsights[parsedVisualizations.length % Math.max(parsedInsights.length, 1)]?.id ?? "I-01",
+                data: Array.isArray(tc.data) ? tc.data : [],
+                imageUrl: fname ? `${API_BASE}/report/${encodeURIComponent(fname)}` : undefined,
+              });
+            });
+          }
+        });
+
+        // 2) Supplementary: map any leftover image files from generated_files that were not in taskCharts
+        rawCharts.forEach((fname: string, idx: number) => {
+          const safeName = fname.replace(/\\/g, "/").split("/").pop() || fname;
+          if (/\.(png|jpg|jpeg|svg)$/i.test(safeName)) {
+            const alreadyAdded = parsedVisualizations.some((v) => v.imageUrl?.endsWith(safeName));
+            if (!alreadyAdded) {
+              parsedVisualizations.push({
+                id: `V-0${parsedVisualizations.length + 1}`,
+                title: safeName.replace(/[_-]/g, " ").replace(/\.[^.]+$/, "").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+                description: `Analysis visualization`,
+                kind: "bar" as const,
+                insightId: parsedInsights[idx % Math.max(parsedInsights.length, 1)]?.id ?? "I-01",
+                imageUrl: `${API_BASE}/report/${encodeURIComponent(safeName)}`,
+                data: [],
+              });
+            }
+          }
+        });
+
         set(() => ({
           profile: {
             ...prof,
@@ -323,7 +406,9 @@ export const useStore = create<AppState>()(
           },
           insights: parsedInsights,
           recommendations: parsedRecs,
+          visualizations: parsedVisualizations,
           executionLogs: executionLogs.length ? executionLogs : undefined,
+          analysisResults: rawResults,
           reportUrl,
           profileReportUrl,
           chat: [
@@ -342,7 +427,7 @@ export const useStore = create<AppState>()(
 
       clearChat: () => set({ chat: [] }),
     }),
-    { name: "ai-data-analyst-store" }
+    { name: "ai-data-analyst-store", version: 2 }
   )
 );
 

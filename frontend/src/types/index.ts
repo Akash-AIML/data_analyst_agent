@@ -6,11 +6,12 @@ export interface ColumnStat {
   name: string;
   type: "numeric" | "categorical" | "datetime" | "boolean" | "other";
   missing: number;
-  distinct: number;
+  distinct: number | null;
   mean: number | null;
   median?: number | null;
   std?: number | null;
   mode?: number | string | null;
+  skewness?: number | null;
   min: number | string | null;
   max: number | string | null;
 }
@@ -26,7 +27,12 @@ export interface DatasetProfile {
   boolean: number;
   other: number;
   columnStats: ColumnStat[];
-  preview: { headers: string[]; rows: string[][] };
+  preview?: { headers: string[]; rows: string[][] };
+  // Fields populated by the backend pipeline
+  duplicates?: number;
+  missingValues?: Record<string, number>;
+  constantColumns?: string[];
+  highCardinalityColumns?: string[];
 }
 
 export interface PipelineStage {
@@ -64,6 +70,7 @@ export interface Visualization {
   insightId: string;
   kind: "bar" | "line" | "donut" | "area";
   data: { label: string; value: number }[];
+  imageUrl?: string | undefined;  // URL to a real PNG/SVG chart produced by the pipeline
 }
 
 export interface ChatMessage {

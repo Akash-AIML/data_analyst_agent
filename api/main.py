@@ -252,6 +252,13 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
     # summary report is still served for backwards compat if present.
     report_filename = profile_report_filename or insight_report_filename
 
+    import time as _time_end  # already imported above as _time
+    _pipeline_end = _time_end.monotonic()
+
+    # Serialize chart paths as basenames so the frontend can build URLs via /report/<name>
+    generated_files = result_state.get("generated_files") or []
+    chart_filenames = [os.path.basename(p) for p in generated_files if p and os.path.exists(p)]
+
     return JSONResponse(
         content={
             "status": "completed",
@@ -259,6 +266,8 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
             "insights": result_state.get("insights", []),
             "recommendations": result_state.get("recommendations", []),
             "execution_log": result_state.get("execution_log", []),
+            "analysis_results": result_state.get("analysis_results", []),
+            "generated_files": chart_filenames,
             "report_filename": report_filename,
             "report_url": f"/report/{report_filename}" if report_filename else None,
             "profile_report_filename": profile_report_filename,
@@ -283,6 +292,7 @@ def get_report(filename: str):
         os.path.join(REPORTS_DIR, safe_filename),
         os.path.join(OUTPUT_DIR, safe_filename),
         os.path.join("output", safe_filename),
+        os.path.join("output", "analysis", safe_filename),
     ]
     report_path = next((p for p in candidates if os.path.exists(p)), None)
     if not report_path:
@@ -385,14 +395,16 @@ def chat_endpoint(payload: dict = Body(...)):
                         stats_str.append(f"std={col['std']}")
                     if col.get("mode") is not None:
                         stats_str.append(f"mode={col['mode']}")
+                    if col.get("skewness") is not None:
+                        stats_str.append(f"skewness={col['skewness']}")
                     if col.get("min") is not None:
                         stats_str.append(f"min={col['min']}")
                     if col.get("max") is not None:
                         stats_str.append(f"max={col['max']}")
+                    if col.get("distinct") is not None:
+                        stats_str.append(f"distinct_values={col['distinct']}")
                     if col.get("missing") is not None:
                         stats_str.append(f"missing={col['missing']}")
-                    if col.get("distinct") is not None:
-                        stats_str.append(f"distinct={col['distinct']}")
                     grounding_lines.append(f"  {cname} ({ctype}): {', '.join(stats_str)}")
         elif isinstance(column_stats, dict):
             for cname, stats in column_stats.items():
@@ -426,23 +438,41 @@ def chat_endpoint(payload: dict = Body(...)):
                 f"  R-{i:02d}: {action}" + (f" | Impact: {impact}" if impact else "")
             )
 
+    analysis_results = ctx.get("analysis_results") or []
+    if isinstance(analysis_results, list) and analysis_results:
+        corr_lines = []
+        for res in analysis_results:
+            if isinstance(res, dict):
+                stats = res.get("stats") or {}
+                if isinstance(stats, dict):
+                    for k, v in stats.items():
+                        if k.startswith("corr_") and v is not None:
+                            pair_name = k[len("corr_"):].replace("_", " vs ", 1)
+                            corr_lines.append(f"  - {pair_name}: pearson_correlation={v}")
+                        elif k.endswith("_num_outliers") and v is not None:
+                            col_name = k[:-len("_num_outliers")]
+                            grounding_lines.append(f"  - Outliers in {col_name}: {v} outliers detected")
+        if corr_lines:
+            grounding_lines.append("Pairwise Correlations:")
+            grounding_lines.extend(corr_lines)
+
     grounding_text = "\n".join(grounding_lines)
 
-    system_prompt = f"""You are an expert data analyst assistant. You answer questions strictly grounded in the verified pipeline output below.
+    system_prompt = f"""You are an expert data analyst assistant. You answer questions about a dataset based on verified pipeline statistics in the GROUNDING CONTEXT below.
 
 GROUNDING CONTEXT:
 {grounding_text}
 
 Rules:
-- Answer ONLY from the grounding context above. Do not speculate or make up numbers.
-- If asked to summarize key takeaways, overview, or main findings, synthesize a structured summary containing:
-  1. Dataset Overview (rows, columns, feature names)
-  2. Column Statistics (mean, std, min, max, missing count)
-  3. Key Insights & Findings (from pipeline insights I-01, I-02, etc.)
-  4. Strategic Recommendations (from pipeline recommendations R-01, R-02, etc.)
-- If specific data or metrics are not present in the grounding context, state clearly what IS available.
-- Be concise, professional, and clear. Use bold formatting for key metrics (e.g., **67,508.28**).
-- When citing insights or recommendations, reference their IDs (e.g., I-01, R-01).
+- ANSWER DIRECTLY: For specific questions (e.g. "Are X and Y correlated?", "Are there data quality issues?", "What is the mean of Z?"), answer the user's specific question DIRECTLY and concisely in 1-3 paragraphs. Do NOT print the 4-section summary template unless the user explicitly asks for a summary, overview, or key takeaways.
+- ONLY WHEN EXPLICITLY ASKED FOR A SUMMARY/OVERVIEW/KEY TAKEAWAYS: Format the response using the 4-section structure (1. Dataset Overview, 2. Column Statistics, 3. Key Findings, 4. Recommendations).
+- Use ONLY numbers from the grounding context. Do not invent or assume numbers not listed.
+- ANALYTICAL INFERENCE IS ALLOWED: You CAN and SHOULD derive answers from the available stats. Examples:
+  - If correlation value is near 0 → weak/no correlation; if near 1 or -1 → strong correlation.
+  - If mean >> median → the distribution is right-skewed.
+  - If missing count is 0 for all columns → dataset is 100% complete with no missing value issues.
+- NEVER tell the user to "check it yourself", "calculate it manually", or "perform analysis on your own". Always answer using the provided statistics.
+- Be concise, professional, and clear. Use **bold** for key numbers. Use bullet points where helpful.
 """
 
     import time as _time

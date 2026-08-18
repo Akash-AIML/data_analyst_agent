@@ -59,7 +59,7 @@ def _is_id_column_name(col: str) -> bool:
 def _compute_descriptive_stats(df: pd.DataFrame) -> dict:
     """
     Compute descriptive_stats directly from pandas — never rely on the LLM for this.
-    Returns a dict of {col_name: {mean, median, std, min, max}} for all numeric cols
+    Returns a dict of {col_name: {mean, median, std, min, max, distinct, skewness}} for all numeric cols
     that are NOT obvious ID columns.
     """
     stats: dict = {}
@@ -71,12 +71,15 @@ def _compute_descriptive_stats(df: pd.DataFrame) -> dict:
         s = df[col].dropna()
         if s.empty:
             continue
+        skew_val = float(s.skew())
         stats[col] = {
-            "mean":   round(float(s.mean()), 6),
-            "median": round(float(s.median()), 6),
-            "std":    round(float(s.std()), 6),
-            "min":    round(float(s.min()), 6),
-            "max":    round(float(s.max()), 6),
+            "mean":     round(float(s.mean()), 6),
+            "median":   round(float(s.median()), 6),
+            "std":      round(float(s.std()), 6),
+            "min":      round(float(s.min()), 6),
+            "max":      round(float(s.max()), 6),
+            "distinct": int(s.nunique()),
+            "skewness": round(skew_val, 6),
         }
     return stats
 
@@ -183,6 +186,8 @@ def _build_profile_from_pandas(df: pd.DataFrame, csv_path: str) -> dict:
     memory_mb = round(df.memory_usage(deep=True).sum() / 1e6, 6)
     filename = _os.path.basename(csv_path)
 
+    nunique_map = {c: int(df[c].nunique(dropna=True)) for c in df.columns}
+
     return {
         "dataset_name": filename,
         "rows": int(df.shape[0]),
@@ -198,6 +203,7 @@ def _build_profile_from_pandas(df: pd.DataFrame, csv_path: str) -> dict:
         "memory_usage_mb": memory_mb,
         "sample_rows": 5,
         "descriptive_stats": stats,
+        "nunique_map": nunique_map,
     }
 
 

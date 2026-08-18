@@ -43,35 +43,68 @@ const tooltipStyle = {
   fontSize: 12,
 };
 
+const formatYTick = (value: number) => {
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 10_000) return `${(value / 1_000).toFixed(0)}k`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return value.toString();
+};
+
+const formatTooltipValue = (value: any) => [
+  typeof value === "number" ? value.toLocaleString() : value,
+  "Value / Count",
+];
+
 function MiniChart({ viz, height = 180 }: { viz: Visualization; height?: number }) {
-  const common = (
-    <>
-      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-      <XAxis dataKey="label" tick={axis} tickLine={false} axisLine={false} />
-      <YAxis tick={axis} tickLine={false} axisLine={false} width={38} />
-      <RTooltip contentStyle={tooltipStyle} cursor={{ fill: "var(--muted)", opacity: 0.25 }} />
-    </>
-  );
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      {viz.kind === "line" ? (
-        <LineChart data={viz.data}>
-          {common}
-          <Line type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={2.5} dot={false} />
-        </LineChart>
-      ) : viz.kind === "area" ? (
-        <AreaChart data={viz.data}>
-          {common}
-          <Area type="monotone" dataKey="value" stroke="var(--chart-2)" fill="var(--chart-2)" fillOpacity={0.18} strokeWidth={2} />
-        </AreaChart>
-      ) : (
-        <BarChart data={viz.data}>
-          {common}
-          <Bar dataKey="value" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
-        </BarChart>
-      )}
-    </ResponsiveContainer>
-  );
+  const hasData = Array.isArray(viz.data) && viz.data.length > 0;
+
+  // 1) Render interactive SVG chart if data points exist
+  if (hasData) {
+    const common = (
+      <>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+        <XAxis dataKey="label" tick={axis} tickLine={false} axisLine={false} height={35} tickMargin={6} />
+        <YAxis tick={axis} tickLine={false} axisLine={false} width={52} tickFormatter={formatYTick} />
+        <RTooltip contentStyle={tooltipStyle} formatter={formatTooltipValue} cursor={{ fill: "var(--muted)", opacity: 0.25 }} />
+      </>
+    );
+    return (
+      <ResponsiveContainer width="100%" height={height}>
+        {viz.kind === "line" ? (
+          <LineChart data={viz.data}>
+            {common}
+            <Line type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={2.5} dot={false} />
+          </LineChart>
+        ) : viz.kind === "area" ? (
+          <AreaChart data={viz.data}>
+            {common}
+            <Area type="monotone" dataKey="value" stroke="var(--chart-2)" fill="var(--chart-2)" fillOpacity={0.18} strokeWidth={2} />
+          </AreaChart>
+        ) : (
+          <BarChart data={viz.data}>
+            {common}
+            <Bar dataKey="value" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    );
+  }
+
+  // 2) Fallback to PNG image if no interactive data points
+  if (viz.imageUrl) {
+    return (
+      <div style={{ height }} className="flex items-center justify-center overflow-hidden rounded-lg bg-muted/20">
+        <img
+          src={viz.imageUrl}
+          alt={viz.title}
+          className="max-h-full max-w-full object-contain rounded"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
+      </div>
+    );
+  }
+
+  return <div style={{ height }} className="flex items-center justify-center text-xs text-muted-foreground">No chart data available</div>;
 }
 
 export function Insights() {
@@ -109,10 +142,24 @@ export function Insights() {
     }
   }
 
+  const pipelineStatus = store.pipelineStatus;
+  const hasRealData = insights.length > 0 || pipelineStatus === "completed";
+
   return (
     <div>
       {mockMode && <MockModeBanner context="this executive report" />}
 
+      {!hasRealData && (
+        <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+          <TrendingUp className="size-10 text-muted-foreground/40" aria-hidden />
+          <h2 className="text-xl font-semibold">No insights yet</h2>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Upload a dataset and run the pipeline to generate AI-powered insights and recommendations grounded in your data.
+          </p>
+        </div>
+      )}
+
+      {hasRealData && (<>
       <PageHeader
         eyebrow="Executive Insights"
         title="Revenue & Data Quality Briefing"
@@ -280,6 +327,7 @@ export function Insights() {
           {lightbox && <MiniChart viz={lightbox} height={380} />}
         </DialogContent>
       </Dialog>
+      </>)}
     </div>
   );
 }

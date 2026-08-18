@@ -39,12 +39,12 @@ const healthMeta: Record<HealthStatus, { icon: typeof CheckCircle2; tone: string
 
 export function Diagnostics() {
   const store = useStore();
-  const health = store.health || mockHealth;
+  const health = store.health || [];
   const mockMode = store.mockMode;
-  const pipelineDurationMs = store.pipelineDurationMs || 21540;
-  const profile = store.profile || mockProfile;
-  const insights = store.insights || mockInsights;
-  const recommendations = store.recommendations || mockRecommendations;
+  const pipelineDurationMs = store.pipelineDurationMs || 0;
+  const profile = store.profile;
+  const insights = store.insights || [];
+  const recommendations = store.recommendations || [];
   const logs = store.executionLogs || mockLogs;
   const model = store.model || "gpt-4.1-nano";
 
@@ -61,10 +61,10 @@ export function Diagnostics() {
   const agentState = useMemo(
     () => ({
       dataset: {
-        filename: profile?.filename ?? "sales_transactions.csv",
-        rows: profile?.rows ?? 1000,
-        columns: profile?.columns ?? 10,
-        quality_score: profile?.qualityScore ?? 98.5,
+        filename: profile?.filename ?? "N/A",
+        rows: profile?.rows ?? 0,
+        columns: profile?.columns ?? 0,
+        quality_score: profile?.["qualityScore"] ?? 0,
       },
       pipeline: {
         status: store.pipelineStatus || "completed",

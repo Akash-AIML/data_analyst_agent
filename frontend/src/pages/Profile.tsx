@@ -94,7 +94,7 @@ export function Profile() {
         { name: "Datetime", value: profile.datetime },
         { name: "Boolean", value: profile.boolean },
         { name: "Other", value: profile.other },
-      ].filter((d) => d.value > 0),
+      ].filter((d) => (d.value ?? 0) > 0),
     [profile],
   );
 
@@ -170,10 +170,10 @@ export function Profile() {
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
                 <div
                   className="h-full rounded-full bg-[image:var(--gradient-primary)]"
-                  style={{ width: `${Math.min(100, (c.distinct / Math.max(profile.rows || 1, 1)) * 100 + 6)}%` }}
+                  style={{ width: `${Math.min(100, ((c.distinct ?? 0) / Math.max(profile.rows || 1, 1)) * 100 + 6)}%` }}
                 />
               </div>
-              <span className="w-16 text-right font-mono text-xs tabular-nums">{c.distinct}</span>
+              <span className="w-16 text-right font-mono text-xs tabular-nums">{c.distinct ?? "—"}</span>
             </div>
           ))}
         </div>

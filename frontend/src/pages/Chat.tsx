@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Bot, CornerDownLeft, Loader2, RotateCcw, ShieldCheck, User, WifiOff } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -15,12 +15,7 @@ import { toast } from "sonner";
 const API_BASE =
   (import.meta.env["VITE_API_BASE_URL"] as string | undefined) || "http://localhost:8000";
 
-const suggestions = [
-  { label: "Summarize the key takeaways", key: "takeaways" },
-  { label: "Which region has the highest sales?", key: "region" },
-  { label: "Are there data quality issues?", key: "quality" },
-  { label: "List all features / columns", key: "features" },
-];
+
 
 /** Minimal, safe renderer for the bold / bullet / quote markdown used in replies. */
 function RichText({ content }: { content: string }) {
@@ -62,6 +57,37 @@ export function Chat() {
   const profile = store.profile;
   const insights = store.insights || [];
   const recommendations = store.recommendations || [];
+  const suggestions = useMemo(() => {
+    const numCols = profile?.["numeric_columns"] || profile?.columnStats?.filter((c) => c.type === "numeric").map((c) => c.name) || [];
+    const catCols = profile?.["categorical_columns"] || profile?.columnStats?.filter((c) => c.type === "categorical").map((c) => c.name) || [];
+    const missingMap = profile?.["missing_values"] || profile?.missingValues || {};
+    const hasMissing = Object.keys(missingMap).length > 0;
+
+    const list = [
+      { label: "Summarize the key takeaways", key: "takeaways" },
+      { label: "List all features & data types", key: "features" },
+    ];
+
+    if (hasMissing) {
+      list.push({ label: "Which features have missing values?", key: "missing" });
+    } else {
+      list.push({ label: "Are there any data quality issues?", key: "quality" });
+    }
+
+    if (numCols.length > 0) {
+      const col = numCols[0];
+      list.push({ label: `What is the distribution of ${col}?`, key: "dist" });
+    }
+    if (numCols.length >= 2) {
+      list.push({ label: `Are ${numCols[0]} and ${numCols[1]} correlated?`, key: "corr" });
+    } else if (catCols.length > 0) {
+      const cat = catCols[0];
+      list.push({ label: `What are the most frequent values in ${cat}?`, key: "freq" });
+    }
+
+    return list;
+  }, [profile]);
+
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -98,10 +124,11 @@ export function Chat() {
         median: c.median ?? rawCol.median ?? null,
         std: c.std ?? rawCol.std ?? null,
         mode: c.mode ?? rawCol.mode ?? null,
+        skewness: c.skewness ?? rawCol.skewness ?? null,
         min: c.min ?? rawCol.min ?? null,
         max: c.max ?? rawCol.max ?? null,
         missing: c.missing,
-        distinct: c.distinct,
+        distinct: c.distinct ?? rawCol.distinct ?? null,
       };
     });
     const chatContext = {
@@ -112,6 +139,7 @@ export function Chat() {
       columns_list: columnsList,
       column_stats: columnStats,
       descriptive_stats: rawDescriptiveStats,
+      analysis_results: store.analysisResults || [],
       insights: insights.map((ins) => ({
         title: ins.title,
         explanation: ins.explanation,
