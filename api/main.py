@@ -435,10 +435,14 @@ GROUNDING CONTEXT:
 
 Rules:
 - Answer ONLY from the grounding context above. Do not speculate or make up numbers.
-- If the answer is not present in the grounding context, say so clearly.
-- Be concise. Use bullet points where helpful.
-- When citing numbers or insights, reference the source (e.g., "per insight I-01", "from the dataset profile").
-- Format key numbers in bold using **value**.
+- If asked to summarize key takeaways, overview, or main findings, synthesize a structured summary containing:
+  1. Dataset Overview (rows, columns, feature names)
+  2. Column Statistics (mean, std, min, max, missing count)
+  3. Key Insights & Findings (from pipeline insights I-01, I-02, etc.)
+  4. Strategic Recommendations (from pipeline recommendations R-01, R-02, etc.)
+- If specific data or metrics are not present in the grounding context, state clearly what IS available.
+- Be concise, professional, and clear. Use bold formatting for key metrics (e.g., **67,508.28**).
+- When citing insights or recommendations, reference their IDs (e.g., I-01, R-01).
 """
 
     import time as _time
