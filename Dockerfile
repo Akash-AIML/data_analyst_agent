@@ -1,9 +1,17 @@
 # ============================================================
-# AI Data Analyst — Backend Dockerfile
+# AI Data Analyst — Multi-Stage Dockerfile (Frontend + Backend)
 # Target: Azure Container Apps (Linux/amd64)
 # ============================================================
 
-# ---- Stage 1: dependency builder ----
+# ---- Stage 1: Frontend builder ----
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci --quiet
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Stage 2: Python dependency builder ----
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
@@ -25,7 +33,7 @@ RUN pip install --upgrade pip && \
     pip install --prefix=/install --no-cache-dir -r requirements.txt
 
 
-# ---- Stage 2: runtime image ----
+# ---- Stage 3: Runtime image ----
 FROM python:3.11-slim AS runtime
 
 # Non-root user for security
@@ -45,7 +53,7 @@ COPY --from=builder /install /usr/local
 
 WORKDIR /app
 
-# Copy application source (exclude venv, node_modules, output, uploads)
+# Copy application source
 COPY agents/       ./agents/
 COPY api/          ./api/
 COPY state/        ./state/
@@ -56,6 +64,9 @@ COPY llm.py        ./llm.py
 COPY graph.py      ./graph.py
 COPY state.py      ./state.py
 COPY app.py        ./app.py
+
+# Copy built frontend static assets from Stage 1
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Pre-create output directories and set ownership
 RUN mkdir -p output/profiles output/analysis output/reports uploads && \
@@ -77,3 +88,4 @@ CMD ["python", "-m", "uvicorn", "api.main:app", \
      "--workers", "2", \
      "--timeout-keep-alive", "300", \
      "--log-level", "info"]
+

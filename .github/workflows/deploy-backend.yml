@@ -8,6 +8,7 @@ on:
       - "requirements.txt"
       - "Dockerfile"
       - ".dockerignore"
+      - "frontend/**"
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
