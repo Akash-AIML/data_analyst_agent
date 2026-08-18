@@ -31,8 +31,11 @@ tests/
 .env.*
 !.env.example
 
-# Frontend (built separately for Vercel — not needed in backend image)
-frontend/
+# Frontend build artifacts & node_modules (keep frontend/ source code)
+frontend/node_modules/
+frontend/dist/
+frontend/.tanstack/
+frontend/.output/
 node_modules/
 
 # Generated output (mounted as a volume in production)
