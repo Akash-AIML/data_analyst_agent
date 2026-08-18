@@ -341,6 +341,8 @@ def chat_endpoint(payload: dict = Body(...)):
     recommendations = ctx.get("recommendations") or []
 
 
+    column_stats = ctx.get("column_stats") or ctx.get("columnStats") or ctx.get("descriptive_stats") or []
+
     # Build grounding block
     grounding_lines = [
         f"Dataset: {filename}",
@@ -350,6 +352,31 @@ def chat_endpoint(payload: dict = Body(...)):
     ]
     if cols_list:
         grounding_lines.append(f"Features: {', '.join(str(c) for c in cols_list)}")
+
+    if column_stats:
+        grounding_lines.append("Column summary & descriptive statistics:")
+        if isinstance(column_stats, list):
+            for col in column_stats:
+                if isinstance(col, dict):
+                    cname = col.get("name") or col.get("column") or "unknown"
+                    ctype = col.get("type") or "numeric"
+                    stats_str = []
+                    if col.get("mean") is not None:
+                        stats_str.append(f"mean={col['mean']}")
+                    if col.get("min") is not None:
+                        stats_str.append(f"min={col['min']}")
+                    if col.get("max") is not None:
+                        stats_str.append(f"max={col['max']}")
+                    if col.get("missing") is not None:
+                        stats_str.append(f"missing={col['missing']}")
+                    if col.get("distinct") is not None:
+                        stats_str.append(f"distinct={col['distinct']}")
+                    grounding_lines.append(f"  {cname} ({ctype}): {', '.join(stats_str)}")
+        elif isinstance(column_stats, dict):
+            for cname, stats in column_stats.items():
+                if isinstance(stats, dict):
+                    stats_str = [f"{k}={v}" for k, v in stats.items() if v is not None]
+                    grounding_lines.append(f"  {cname}: {', '.join(stats_str)}")
     if insights:
         grounding_lines.append("Key insights from the pipeline:")
         for i, ins in enumerate(insights[:8], 1):

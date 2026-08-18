@@ -88,12 +88,22 @@ export function Chat() {
 
     // Build grounding context from live store state
     const columnsList = (profile?.columnStats || []).map((c) => c.name);
+    const columnStats = (profile?.columnStats || []).map((c) => ({
+      name: c.name,
+      type: c.type,
+      mean: c.mean,
+      min: c.min,
+      max: c.max,
+      missing: c.missing,
+      distinct: c.distinct,
+    }));
     const chatContext = {
       filename: profile?.filename ?? "dataset.csv",
       rows: profile?.rows ?? 0,
       columns: profile?.columns ?? 0,
       quality_score: profile?.qualityScore ?? 0,
       columns_list: columnsList,
+      column_stats: columnStats,
       insights: insights.map((ins) => ({
         title: ins.title,
         explanation: ins.explanation,
