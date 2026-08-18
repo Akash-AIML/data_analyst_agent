@@ -87,19 +87,23 @@ export function Chat() {
     const started = Date.now();
 
     // Build grounding context from live store state
+    const rawDescriptiveStats = profile?.descriptive_stats || profile?.descriptiveStats || {};
     const columnsList = (profile?.columnStats || []).map((c) => c.name);
-    const columnStats = (profile?.columnStats || []).map((c) => ({
-      name: c.name,
-      type: c.type,
-      mean: c.mean,
-      median: c.median,
-      std: c.std,
-      mode: c.mode,
-      min: c.min,
-      max: c.max,
-      missing: c.missing,
-      distinct: c.distinct,
-    }));
+    const columnStats = (profile?.columnStats || []).map((c) => {
+      const rawCol = rawDescriptiveStats[c.name] || {};
+      return {
+        name: c.name,
+        type: c.type,
+        mean: c.mean ?? rawCol.mean ?? null,
+        median: c.median ?? rawCol.median ?? null,
+        std: c.std ?? rawCol.std ?? null,
+        mode: c.mode ?? rawCol.mode ?? null,
+        min: c.min ?? rawCol.min ?? null,
+        max: c.max ?? rawCol.max ?? null,
+        missing: c.missing,
+        distinct: c.distinct,
+      };
+    });
     const chatContext = {
       filename: profile?.filename ?? "dataset.csv",
       rows: profile?.rows ?? 0,
@@ -107,6 +111,7 @@ export function Chat() {
       quality_score: profile?.qualityScore ?? 0,
       columns_list: columnsList,
       column_stats: columnStats,
+      descriptive_stats: rawDescriptiveStats,
       insights: insights.map((ins) => ({
         title: ins.title,
         explanation: ins.explanation,

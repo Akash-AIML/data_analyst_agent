@@ -341,7 +341,23 @@ def chat_endpoint(payload: dict = Body(...)):
     recommendations = ctx.get("recommendations") or []
 
 
-    column_stats = ctx.get("column_stats") or ctx.get("columnStats") or ctx.get("descriptive_stats") or []
+    column_stats = ctx.get("column_stats") or ctx.get("columnStats") or []
+    raw_desc = ctx.get("descriptive_stats") or ctx.get("descriptiveStats") or {}
+    if isinstance(raw_desc, dict) and raw_desc:
+        if isinstance(column_stats, list) and column_stats:
+            for col in column_stats:
+                if isinstance(col, dict) and col.get("name") in raw_desc:
+                    rstat = raw_desc[col["name"]]
+                    if isinstance(rstat, dict):
+                        for k in ("std", "median", "mode", "mean", "min", "max"):
+                            if col.get(k) is None and rstat.get(k) is not None:
+                                col[k] = rstat[k]
+        elif not column_stats:
+            column_stats = [
+                {"name": k, "type": "numeric", **v}
+                for k, v in raw_desc.items()
+                if isinstance(v, dict)
+            ]
 
     # Build grounding block
     grounding_lines = [
