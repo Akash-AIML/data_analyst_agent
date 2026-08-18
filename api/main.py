@@ -65,7 +65,11 @@ logging.basicConfig(
 # Resolve output paths from config (single source of truth).
 OUTPUT_DIR = PROFILE_DIR
 REPORTS_DIR = REPORT_DIR
-FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+FRONTEND_CANDIDATES = [
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist"),
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", ".output", "public"),
+]
+FRONTEND_DIST = next((p for p in FRONTEND_CANDIDATES if os.path.isdir(p)), FRONTEND_CANDIDATES[0])
 
 ensure_dirs()
 

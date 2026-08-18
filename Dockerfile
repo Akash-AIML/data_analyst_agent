@@ -65,8 +65,8 @@ COPY graph.py      ./graph.py
 COPY state.py      ./state.py
 COPY app.py        ./app.py
 
-# Copy built frontend static assets from Stage 1
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+# Copy built frontend static assets from Stage 1 (.output/public from TanStack Start)
+COPY --from=frontend-builder /app/frontend/.output/public ./frontend/dist
 
 # Pre-create output directories and set ownership
 RUN mkdir -p output/profiles output/analysis output/reports uploads && \
