@@ -92,7 +92,11 @@ for _c in cats:
 _CORRELATION = {
     "value": "pairwise pearson correlation matrix and heatmap",
     "code": """
-import os, itertools, pandas as pd, matplotlib.pyplot as plt, seaborn as sns
+import itertools
+import os
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 nums = df.select_dtypes(include=["number"]).columns.tolist()
 RESULT_JSON = {}
 if "charts" not in RESULT_JSON:

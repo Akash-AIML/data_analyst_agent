@@ -20,6 +20,7 @@ _MEM_LIMIT_MB = int(os.getenv("EXEC_MEM_LIMIT_MB", "1536"))
 BASE_SANDBOX_HEADER = """
 import pandas as pd
 import numpy as np
+import itertools
 import json
 import sys
 import traceback
@@ -172,7 +173,7 @@ def _line_strip(code: str) -> str:
         r"^\s*os\.system\(",
         r"^\s*os\.popen\(",
         r"^\s*subprocess\s*\.\s*(run|Popen|call)\(",
-        r"^\s*import\s+os",
+        r"^\s*import\s+os\s*$",
         r"^\s*import\s+subprocess",
         r"\beval\(",
         r"\bexec\(",
