@@ -8,6 +8,9 @@ export interface ColumnStat {
   missing: number;
   distinct: number;
   mean: number | null;
+  median?: number | null;
+  std?: number | null;
+  mode?: number | string | null;
   min: number | string | null;
   max: number | string | null;
 }

@@ -178,6 +178,9 @@ export const useStore = create<AppState>()(
             missing: missingMap[name] || 0,
             distinct: isNum ? Math.min(rows || 100, 100) : isCat ? 10 : 50,
             mean: st.mean ?? null,
+            median: st.median ?? null,
+            std: st.std ?? null,
+            mode: st.mode ?? null,
             min: st.min ?? null,
             max: st.max ?? null,
           };

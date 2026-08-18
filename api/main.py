@@ -363,6 +363,12 @@ def chat_endpoint(payload: dict = Body(...)):
                     stats_str = []
                     if col.get("mean") is not None:
                         stats_str.append(f"mean={col['mean']}")
+                    if col.get("median") is not None:
+                        stats_str.append(f"median={col['median']}")
+                    if col.get("std") is not None:
+                        stats_str.append(f"std={col['std']}")
+                    if col.get("mode") is not None:
+                        stats_str.append(f"mode={col['mode']}")
                     if col.get("min") is not None:
                         stats_str.append(f"min={col['min']}")
                     if col.get("max") is not None:
